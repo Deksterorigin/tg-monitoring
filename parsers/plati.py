@@ -31,10 +31,10 @@ class PlatiParser(BaseParser):
                         logger.warning(f"[{self.platform_name}] Ошибка запроса к API Plati: {response.status}")
                         return parsed_items
                         
-                    data = await response.json()
+                    data = await response.json(content_type=None)
                     
-                    # Структура ответа API Plati содержит поле "rows" со списком товаров
-                    rows = data.get("rows", [])
+                    # Структура ответа API Plati содержит поле "items" со списком товаров
+                    rows = data.get("items", [])
                     logger.info(f"[{self.platform_name}] API вернуло {len(rows)} товаров.")
                     
                     for row in rows:
@@ -48,7 +48,7 @@ class PlatiParser(BaseParser):
                                 
                             # Цены
                             price_usd = float(row.get("price_usd", 0.0))
-                            price_rub = float(row.get("price_rub", 0.0))
+                            price_rub = float(row.get("price_rur", 0.0))
                             
                             # URL товара
                             item_url = f"https://plati.market/itm/{item_id}"

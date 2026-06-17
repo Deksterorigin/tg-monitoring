@@ -2,6 +2,7 @@ import re
 import logging
 from typing import List, Optional, Dict
 from playwright.async_api import async_playwright
+from bs4 import BeautifulSoup
 from parsers.base import BaseParser, ParsedItem
 from services.currency import currency_service
 from urllib.parse import urljoin
@@ -32,8 +33,6 @@ class FunPayParser(BaseParser):
         
         # Получаем прокси
         active_proxies = await self.get_route_proxy()
-        # Для playwright нужен сырой прокси, разделенный на server/user/pass,
-        # либо мы берем случайный из БД напрямую.
         from database import db_manager
         proxies_list = await db_manager.get_active_proxies()
         
@@ -47,7 +46,6 @@ class FunPayParser(BaseParser):
             browser = None
             context = None
             try:
-                # Запускаем браузер с прокси, если он есть, и флагами оптимизации памяти для Render
                 browser = await p.chromium.launch(
                     headless=True,
                     proxy=pw_proxy,
@@ -56,87 +54,121 @@ class FunPayParser(BaseParser):
                         "--disable-setuid-sandbox",
                         "--disable-dev-shm-usage",
                         "--disable-gpu",
-                        "--single-process",
                         "--disable-extensions"
                     ]
                 )
                 
-                # Добавляем юзер-агент для обхода простых проверок
                 context = await browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
                 
                 page = await context.new_page()
                 
-                # Формируем URL поиска
-                search_url = f"https://funpay.com/search/?q={keyword}"
-                logger.info(f"[{self.platform_name}] Открытие страницы: {search_url}")
+                # Шаг 1. Переходим на главную страницу FunPay
+                logger.info(f"[{self.platform_name}] Открытие главной страницы")
+                await page.goto("https://funpay.com/", timeout=30000, wait_until="domcontentloaded")
                 
-                await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
+                # Шаг 2. Вводим ключевое слово в форму поиска
+                logger.info(f"[{self.platform_name}] Ввод ключевого слова '{keyword}'")
+                await page.fill("input[name='query']", keyword)
                 
-                # Даем время на рендеринг JS (если необходимо)
-                await page.wait_for_timeout(3000)
+                # Шаг 3. Ждем автокомплит
+                try:
+                    await page.wait_for_selector(".dropdown-autocomplete a", timeout=5000)
+                except Exception:
+                    logger.warning(f"[{self.platform_name}] Не дождались ссылок автокомплита")
                 
-                # Ищем элементы объявлений
-                # На FunPay на странице общего поиска элементы имеют класс .tc-item
-                items = await page.query_selector_all(".tc-item")
-                logger.info(f"[{self.platform_name}] Найдено {len(items)} элементов на странице.")
-
-                for item in items:
+                # Считываем ссылки на категории
+                autocomplete_links = await page.query_selector_all(".dropdown-autocomplete a")
+                category_urls = []
+                for link in autocomplete_links:
+                    href = await link.get_attribute("href")
+                    text = await link.inner_text()
+                    text = text.replace("\n", " ").strip()
+                    if href and ("/lots/" in href or "/chips/" in href or "/accounts/" in href):
+                        full_url = urljoin("https://funpay.com/", href)
+                        category_urls.append((full_url, text))
+                        
+                logger.info(f"[{self.platform_name}] Найдено {len(category_urls)} разделов для парсинга")
+                
+                if not category_urls:
+                    # Если автокомплит не дал результатов, попробуем использовать ключевое слово как ID раздела напрямую (если это число)
+                    if keyword.isdigit():
+                        category_urls.append((f"https://funpay.com/lots/{keyword}/", f"Раздел {keyword}"))
+                
+                # Шаг 4. Обходим категории и парсим лоты
+                # Ограничиваем обход первыми 3 категориями, чтобы избежать капчи и таймаутов
+                for target_url, category_name in category_urls[:3]:
+                    logger.info(f"[{self.platform_name}] Парсинг категории '{category_name}': {target_url}")
                     try:
-                        # Ссылка
-                        href = await item.get_attribute("href")
-                        if not href:
-                            continue
-                        item_url = urljoin("https://funpay.com/", href)
+                        await page.goto(target_url, timeout=30000, wait_until="domcontentloaded")
+                        await page.wait_for_timeout(2000) # Даем отрендериться
                         
-                        # Уникальный ID из ссылки или текста
-                        # Ссылки бывают вида /lots/offer?id=123456 или /chips/123/
-                        item_id = href.split("?id=")[-1] if "?id=" in href else href.replace("/", "_")
+                        content = await page.content()
+                        soup = BeautifulSoup(content, "html.parser")
+                        items = soup.select(".tc-item")
+                        logger.info(f"[{self.platform_name}] Найдено {len(items)} элементов в категории '{category_name}'")
                         
-                        # Название/описание товара
-                        desc_el = await item.query_selector(".tc-desc")
-                        if not desc_el:
-                            continue
-                        title = await desc_el.inner_text()
-                        title = title.strip()
-                        
-                        # Проверяем, содержит ли название искомое слово (регистронезависимо)
-                        if keyword.lower() not in title.lower():
-                            continue
-
-                        # Цена
-                        price_el = await item.query_selector(".tc-price")
-                        if not price_el:
-                            continue
-                        price_text = await price_el.inner_text()
-                        
-                        # Извлекаем числовое значение цены из строки вроде "150 руб." или "1.50 $"
-                        price_num_match = re.search(r"([\d\s.,]+)", price_text)
-                        if not price_num_match:
-                            continue
-                        
-                        price_val = float(price_num_match.group(1).replace(" ", "").replace(",", ".").strip())
-                        
-                        # Конвертируем валюту
-                        if "$" in price_text:
-                            price_usd = price_val
-                            price_rub = price_usd * 90.0  # Примерный обратный курс для справки
-                        else:
-                            price_rub = price_val
-                            price_usd = await currency_service.convert_rub_to_usd(price_rub)
-                        
-                        parsed_items.append(ParsedItem(
-                            id=f"funpay_{item_id}",
-                            title=title,
-                            price_rub=round(price_rub, 2),
-                            price_usd=round(price_usd, 2),
-                            url=item_url,
-                            platform=self.platform_name
-                        ))
-                    except Exception as item_err:
-                        logger.error(f"[{self.platform_name}] Ошибка парсинга элемента: {item_err}")
+                        for item in items:
+                            try:
+                                href = item.get("href")
+                                if not href:
+                                    continue
+                                item_url = urljoin("https://funpay.com/", href)
+                                
+                                # ID товара
+                                item_id = href.split("?id=")[-1] if "?id=" in href else href.replace("/", "_")
+                                
+                                # Описание / Название
+                                desc_el = item.select_one(".tc-desc")
+                                if not desc_el:
+                                    continue
+                                title = desc_el.text.strip()
+                                
+                                # Фильтр по ключевому слову в названии
+                                if keyword.lower() not in title.lower():
+                                    continue
+                                    
+                                # Цена
+                                price_el = item.select_one(".tc-price")
+                                if not price_el:
+                                    continue
+                                price_text = price_el.text
+                                
+                                price_num_match = re.search(r"([\d\s.,]+)", price_text)
+                                if not price_num_match:
+                                    continue
+                                    
+                                # Очищаем цену (поддержка non-breaking space и любых разделителей тысяч)
+                                price_val_str = re.sub(r"\s+", "", price_num_match.group(1)).replace(",", ".")
+                                price_val = float(price_val_str)
+                                
+                                # Конвертация валют
+                                if "$" in price_text or "usd" in price_text.lower():
+                                    price_usd = price_val
+                                    price_rub = price_usd * 90.0
+                                elif "€" in price_text or "eur" in price_text.lower():
+                                    price_usd = await currency_service.convert_eur_to_usd(price_val)
+                                    price_rub = await currency_service.convert_eur_to_rub(price_val)
+                                else:
+                                    price_rub = price_val
+                                    price_usd = await currency_service.convert_rub_to_usd(price_rub)
+                                    
+                                parsed_items.append(ParsedItem(
+                                    id=f"funpay_{item_id}",
+                                    title=title,
+                                    price_rub=round(price_rub, 2),
+                                    price_usd=round(price_usd, 2),
+                                    url=item_url,
+                                    platform=self.platform_name
+                                ))
+                            except Exception as item_err:
+                                logger.error(f"[{self.platform_name}] Ошибка разбора элемента: {item_err}")
+                                continue
+                    except Exception as cat_err:
+                        logger.error(f"[{self.platform_name}] Ошибка парсинга категории {target_url}: {cat_err}")
                         continue
+                        
             except Exception as e:
                 logger.error(f"[{self.platform_name}] Критическая ошибка при парсинге Playwright: {e}")
             finally:
@@ -144,5 +176,5 @@ class FunPayParser(BaseParser):
                     await context.close()
                 if browser:
                     await browser.close()
-                
+                    
         return parsed_items

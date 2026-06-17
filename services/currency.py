@@ -17,15 +17,16 @@ class CurrencyService:
     def __init__(self):
         if not hasattr(self, 'initialized'):
             self.rub_to_usd_rate: float = 0.011  # Дефолтный курс (1/90)
+            self.eur_to_rub_rate: float = 98.0   # Дефолтный курс EUR к RUB
             self.last_updated: float = 0.0
             self.cache_duration: float = 3600.0  # Кэш на 1 час
             self.initialized = True
 
-    async def update_rate(self) -> float:
-        """Получает текущий курс USD к RUB из API ЦБ РФ и считает обратный курс RUB к USD."""
+    async def update_rates(self):
+        """Получает текущие курсы USD и EUR к RUB из API ЦБ РФ."""
         now = time.time()
-        if now - self.last_updated < self.cache_duration and self.rub_to_usd_rate != 0.011:
-            return self.rub_to_usd_rate
+        if now - self.last_updated < self.cache_duration and self.last_updated != 0.0:
+            return
 
         url = "https://www.cbr.ru/scripts/XML_daily.asp"
         try:
@@ -35,30 +36,44 @@ class CurrencyService:
                         xml_data = await response.text(encoding='windows-1251')
                         root = ET.fromstring(xml_data)
                         usd_val = None
+                        eur_val = None
                         for valute in root.findall('Valute'):
                             char_code = valute.find('CharCode')
-                            if char_code is not None and char_code.text == 'USD':
-                                value_node = valute.find('Value')
-                                if value_node is not None and value_node.text:
-                                    # Заменяем запятую на точку для преобразования в float
-                                    usd_val_str = value_node.text.replace(',', '.')
-                                    usd_val = float(usd_val_str)
-                                    break
+                            if char_code is not None:
+                                if char_code.text == 'USD':
+                                    value_node = valute.find('Value')
+                                    if value_node is not None and value_node.text:
+                                        usd_val = float(value_node.text.replace(',', '.'))
+                                elif char_code.text == 'EUR':
+                                    value_node = valute.find('Value')
+                                    if value_node is not None and value_node.text:
+                                        eur_val = float(value_node.text.replace(',', '.'))
                         
                         if usd_val:
-                            # usd_val — это сколько рублей стоит 1 доллар.
-                            # Нам нужен курс: сколько долларов стоит 1 рубль (RUB -> USD)
                             self.rub_to_usd_rate = 1.0 / usd_val
+                        if eur_val:
+                            self.eur_to_rub_rate = eur_val
+                        
+                        if usd_val or eur_val:
                             self.last_updated = now
-                            logger.info(f"Курс валют обновлен. 1 USD = {usd_val} RUB (1 RUB = {self.rub_to_usd_rate:.5f} USD)")
-                            return self.rub_to_usd_rate
+                            logger.info(
+                                f"Курсы валют обновлены. 1 USD = {usd_val or 'N/A'} RUB, 1 EUR = {eur_val or 'N/A'} RUB"
+                            )
         except Exception as e:
-            logger.error(f"Не удалось обновить курс валют из ЦБ РФ: {e}. Используется дефолтный курс.")
-        
-        return self.rub_to_usd_rate
+            logger.error(f"Не удалось обновить курс валют из ЦБ РФ: {e}. Используются дефолтные курсы.")
 
     async def convert_rub_to_usd(self, rub_amount: float) -> float:
-        rate = await self.update_rate()
-        return rub_amount * rate
+        await self.update_rates()
+        return rub_amount * self.rub_to_usd_rate
+
+    async def convert_eur_to_usd(self, eur_amount: float) -> float:
+        await self.update_rates()
+        # EUR -> RUB -> USD
+        rub_amount = eur_amount * self.eur_to_rub_rate
+        return rub_amount * self.rub_to_usd_rate
+
+    async def convert_eur_to_rub(self, eur_amount: float) -> float:
+        await self.update_rates()
+        return eur_amount * self.eur_to_rub_rate
 
 currency_service = CurrencyService()

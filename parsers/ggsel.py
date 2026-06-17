@@ -39,21 +39,24 @@ class GGSelParser(BaseParser):
                     html = await response.text()
                     soup = BeautifulSoup(html, "html.parser")
                     
-                    # Пытаемся найти карточки товаров
-                    # На GGSel карточки обычно имеют ссылки на "/goods/" или содержат определенные классы.
-                    cards = soup.find_all("a", href=re.compile(r"/goods/\d+"))
+                    # Ищем карточки товаров по data-testid или классам
+                    cards = soup.select("[data-testid='card'], [data-test='item']")
                     if not cards:
-                        # Вторая попытка: ищем по классам
-                        cards = soup.select(".product-card, .main-item, .catalog-item")
+                        cards = soup.select("[class*='ProductCard'], .product-card, .main-item, .catalog-item")
+                    if not cards:
+                        # Фолбэк на поиск всех ссылок на продукты
+                        cards = soup.find_all("a", href=re.compile(r"/catalog/product/|/goods/"))
                         
                     logger.info(f"[{self.platform_name}] Найдено {len(cards)} потенциальных карточек.")
                     
                     for card in cards:
                         try:
                             # Ссылка
-                            href = card.get("href") if card.name == "a" else None
-                            if not href:
-                                link_el = card.find("a", href=re.compile(r"/goods/\d+")) or card.find("a")
+                            href = None
+                            if card.name == "a":
+                                href = card.get("href")
+                            else:
+                                link_el = card.select_one("[data-testid='card-link']") or card.find("a", href=re.compile(r"/catalog/product/|/goods/"))
                                 if link_el:
                                     href = link_el.get("href")
                             
@@ -63,26 +66,30 @@ class GGSelParser(BaseParser):
                             item_url = urljoin("https://ggsel.net/", href)
                             
                             # ID товара
-                            item_id_match = re.search(r"/goods/(\d+)", href)
-                            item_id = item_id_match.group(1) if item_id_match else href.replace("/", "_")
+                            item_id_match = re.search(r"/(product|goods)/([\w\d_-]+)", href)
+                            item_id = item_id_match.group(2) if item_id_match else href.replace("/", "_")
                             
                             # Название товара
-                            # Ищем внутри карточки подходящие элементы с текстом названия
-                            title_el = card.select_one(".product-card__title, .title, .name") or card.find(class_=re.compile(r"title|name|desc"))
-                            title = title_el.text.strip() if title_el else ""
+                            title = ""
+                            img_el = card.find("img")
+                            if img_el:
+                                title = img_el.get("alt", "").strip()
+                            if not title:
+                                title_el = card.select_one("[class*='description'], [class*='title'], [class*='name']")
+                                if title_el:
+                                    title = title_el.text.strip()
                             if not title and card.name == "a":
-                                # Если сама ссылка содержит текст
                                 title = card.text.strip()
                                 
                             if not title or keyword.lower() not in title.lower():
                                 continue
                                 
                             # Цена
-                            price_el = card.select_one(".product-card__price, .price, .val") or card.find(class_=re.compile(r"price|cost"))
-                            price_text = price_el.text.strip() if price_el else ""
-                            
-                            if not price_text:
-                                # Ищем текст с цифрами и знаком валюты
+                            price_text = ""
+                            price_el = card.select_one("[class*='price'], [class*='cost']")
+                            if price_el:
+                                price_text = price_el.text.strip()
+                            else:
                                 text_content = card.text
                                 price_match = re.search(r"(\d[\d\s.,]*)\s*(₽|руб|usd|\$|EUR|€)", text_content, re.IGNORECASE)
                                 if price_match:
@@ -91,16 +98,20 @@ class GGSelParser(BaseParser):
                             if not price_text:
                                 continue
                                 
-                            # Очищаем цену
+                            # Очищаем цену (поддержка non-breaking space и любых разделителей тысяч)
                             price_num_match = re.search(r"([\d\s.,]+)", price_text)
                             if not price_num_match:
                                 continue
                                 
-                            price_val = float(price_num_match.group(1).replace(" ", "").replace(",", ".").strip())
+                            price_val_str = re.sub(r"\s+", "", price_num_match.group(1)).replace(",", ".")
+                            price_val = float(price_val_str)
                             
                             if "$" in price_text or "usd" in price_text.lower():
                                 price_usd = price_val
                                 price_rub = price_usd * 90.0
+                            elif "€" in price_text or "eur" in price_text.lower():
+                                price_usd = await currency_service.convert_eur_to_usd(price_val)
+                                price_rub = await currency_service.convert_eur_to_rub(price_val)
                             else:
                                 price_rub = price_val
                                 price_usd = await currency_service.convert_rub_to_usd(price_rub)
