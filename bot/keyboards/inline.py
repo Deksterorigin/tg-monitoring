@@ -15,7 +15,20 @@ def get_main_menu_keyboard(monitoring_enabled: bool) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text=toggle_text, callback_data="toggle_monitoring")
+        ],
+        [
+            InlineKeyboardButton(text="💾 Резервная копия", callback_data="menu_backup")
         ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_backup_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="📥 Скачать БД", callback_data="download_db"),
+            InlineKeyboardButton(text="📤 Восстановить БД", callback_data="restore_db")
+        ],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

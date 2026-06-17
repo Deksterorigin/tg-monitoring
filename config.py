@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     RENDER_EXTERNAL_URL: str = ""
     PORT: int = 8080
     DATABASE_PATH: str = "bot_database.db"
-    DATABASE_URL: str = ""
 
     
     # Для управления парсингом (значения по умолчанию)

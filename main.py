@@ -14,6 +14,7 @@ from bot.handlers.settings import router as settings_router
 from bot.handlers.interval import router as interval_router
 from bot.handlers.proxies import router as proxies_router
 from bot.handlers.admins_mgmt import router as admins_router
+from bot.handlers.backup import router as backup_router
 
 # Настройка логирования
 logging.basicConfig(
@@ -40,6 +41,7 @@ async def main():
     dp.include_router(interval_router)
     dp.include_router(proxies_router)
     dp.include_router(admins_router)
+    dp.include_router(backup_router)
 
     # 4. Настраиваем планировщик фоновых задач
     interval_setting = await db_manager.get_setting("interval_minutes", "60")
