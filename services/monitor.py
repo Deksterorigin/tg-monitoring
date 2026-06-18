@@ -59,6 +59,11 @@ async def run_monitoring_cycle():
 
     # Загружаем настройки поиска
     try:
+        min_price_usd = float(await db_manager.get_setting("min_price_usd", "0.0"))
+    except ValueError:
+        min_price_usd = 0.0
+
+    try:
         max_price_usd = float(await db_manager.get_setting("max_price_usd", "10.0"))
     except ValueError:
         max_price_usd = 10.0
@@ -70,7 +75,7 @@ async def run_monitoring_cycle():
         logger.warning("Список ключевых слов пуст. Мониторинг пропущен.")
         return
 
-    logger.info(f"Запуск мониторинга: ключевые слова={keywords}, макс. цена={max_price_usd}$")
+    logger.info(f"Запуск мониторинга: ключевые слова={keywords}, цена: от {min_price_usd}$ до {max_price_usd}$")
 
     # Для каждого ключевого слова запускаем все парсеры
     for keyword in keywords:
@@ -81,7 +86,7 @@ async def run_monitoring_cycle():
                 
                 for item in items:
                     # Проверяем условия (цена и не видели ли ранее)
-                    if item.price_usd <= max_price_usd:
+                    if min_price_usd <= item.price_usd <= max_price_usd:
                         seen = await db_manager.is_item_seen(item.id)
                         if not seen:
                             # Добавляем в просмотренные

@@ -11,23 +11,64 @@ router.message.filter(IsAdminFilter())
 router.callback_query.filter(IsAdminFilter())
 
 class SettingsStates(StatesGroup):
+    waiting_for_min_price = State()
     waiting_for_price = State()
     waiting_for_keywords = State()
 
 @router.callback_query(F.data == "menu_settings")
 async def show_settings_menu(callback: CallbackQuery):
     """Показывает меню настроек поиска."""
+    min_price = await db_manager.get_setting("min_price_usd", "0.0")
     max_price = await db_manager.get_setting("max_price_usd", "10.0")
     keywords = await db_manager.get_setting("keywords", "Не заданы")
     
     text = (
         f"⚙️ <b>Настройки поиска подписок</b>\n\n"
-        f"💵 Текущая максимальная цена: <code>{max_price} $</code>\n"
+        f"📉 Минимальная цена: <code>{min_price} $</code>\n"
+        f"📈 Максимальная цена: <code>{max_price} $</code>\n"
         f"🔍 Ключевые слова: <code>{keywords}</code>\n\n"
         f"Выберите пункт меню для изменения:"
     )
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_settings_keyboard())
     await callback.answer()
+
+@router.callback_query(F.data == "set_min_price")
+async def set_min_price_prompt(callback: CallbackQuery, state: FSMContext):
+    """Запрос на ввод минимальной цены."""
+    await state.set_state(SettingsStates.waiting_for_min_price)
+    await callback.message.edit_text(
+        "📉 <b>Введите новую минимальную цену в долларах ($):</b>\n"
+        "Например: <code>0</code> или <code>2.5</code>\n"
+        "<i>Установите 0, чтобы отключить фильтр по нижней границе.</i>",
+        parse_mode="HTML",
+        reply_markup=get_back_keyboard("menu_settings")
+    )
+    await callback.answer()
+
+@router.message(SettingsStates.waiting_for_min_price)
+async def process_min_price(message: Message, state: FSMContext):
+    """Сохранение новой минимальной цены."""
+    text = message.text.replace(",", ".").strip()
+    try:
+        price = float(text)
+        if price < 0:
+            raise ValueError()
+        
+        await db_manager.set_setting("min_price_usd", str(price))
+        await state.clear()
+        
+        await message.answer(
+            f"✅ Минимальная цена успешно изменена на <b>{price} $</b>!",
+            parse_mode="HTML",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+    except ValueError:
+        await message.answer(
+            "❌ <b>Ошибка!</b> Введите корректное число (>= 0).\n"
+            "Пример: <code>2.5</code>",
+            parse_mode="HTML",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
 
 @router.callback_query(F.data == "set_max_price")
 async def set_max_price_prompt(callback: CallbackQuery, state: FSMContext):

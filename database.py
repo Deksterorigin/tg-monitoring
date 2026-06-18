@@ -54,6 +54,7 @@ class DatabaseManager:
 
         # Инициализация дефолтных настроек
         default_settings = {
+            "min_price_usd": "0.0",
             "max_price_usd": str(settings.DEFAULT_MAX_PRICE_USD),
             "keywords": settings.DEFAULT_KEYWORDS,
             "interval_minutes": str(settings.DEFAULT_PARSE_INTERVAL_MINUTES),
