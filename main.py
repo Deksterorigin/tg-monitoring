@@ -58,6 +58,10 @@ async def main():
         id="monitoring_job"
     )
     
+    # Настраиваем задачу утреннего дайджеста
+    from services.digest import update_digest_job
+    await update_digest_job()
+    
     # Задача self-ping (каждые 14 минут для Render)
     scheduler.add_job(
         self_ping,

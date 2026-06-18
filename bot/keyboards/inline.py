@@ -48,6 +48,9 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔍 Ключевые слова", callback_data="set_keywords"),
             InlineKeyboardButton(text="🚫 Минус-слова", callback_data="set_minus_words")
         ],
+        [
+            InlineKeyboardButton(text="🌙 Тихий час", callback_data="menu_dnd")
+        ],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -102,7 +105,18 @@ def get_categories_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
 
 def get_back_to_categories_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="show_current_deals")]
+        [InlineKeyboardButton(text="🔙 Назад к категориям", callback_data="show_current_deals")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+def get_dnd_keyboard(dnd_enabled: bool) -> InlineKeyboardMarkup:
+    toggle_text = "🔴 Выключить Тихий час" if dnd_enabled else "🟢 Включить Тихий час"
+    buttons = [
+        [InlineKeyboardButton(text=toggle_text, callback_data="toggle_dnd")],
+        [
+            InlineKeyboardButton(text="Начало", callback_data="set_dnd_start"),
+            InlineKeyboardButton(text="Конец", callback_data="set_dnd_end")
+        ],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_settings")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

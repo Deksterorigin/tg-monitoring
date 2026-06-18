@@ -62,6 +62,35 @@ DURATION_PATTERNS = [
     (r"\b(?:1\s*недел|7\s*дн|на\s*неделю|weekly|1\s*week)", "1 неделя"),
 ]
 
+import pytz
+from datetime import datetime
+
+async def is_dnd_active() -> bool:
+    """Проверяет, попадает ли текущее время сервера (Европа/Берлин) в интервал Тихого часа."""
+    dnd_enabled = await db_manager.get_setting("dnd_enabled", "0")
+    if dnd_enabled != "1":
+        return False
+        
+    dnd_start = await db_manager.get_setting("dnd_start", "23:00")
+    dnd_end = await db_manager.get_setting("dnd_end", "08:00")
+    
+    tz = pytz.timezone('Europe/Berlin')
+    now = datetime.now(tz)
+    
+    start_h, start_m = map(int, dnd_start.split(":"))
+    end_h, end_m = map(int, dnd_end.split(":"))
+    
+    current_minutes = now.hour * 60 + now.minute
+    start_minutes = start_h * 60 + start_m
+    end_minutes = end_h * 60 + end_m
+    
+    if start_minutes < end_minutes:
+        # Например, с 10:00 до 18:00
+        return start_minutes <= current_minutes < end_minutes
+    else:
+        # Например, с 23:00 до 08:00 (переход через полночь)
+        return current_minutes >= start_minutes or current_minutes < end_minutes
+
 
 def analyze_item(title: str) -> Tuple[str, str]:
     """Анализирует название товара и определяет категорию ИИ и срок подписки.
@@ -220,8 +249,15 @@ async def run_monitoring_cycle():
             seen = await db_manager.is_item_seen(item.id)
             if not seen:
                 await db_manager.add_seen_item(item.id)
-                await send_notification_to_admins(item, ai_category, duration)
-                sent_count += 1
+                
+                # Проверяем Тихий час перед отправкой
+                dnd_active = await is_dnd_active()
+                if not dnd_active:
+                    await send_notification_to_admins(item, ai_category, duration)
+                    sent_count += 1
+                else:
+                    logger.debug(f"Тихий час включен, уведомление для {item.id} пропущено.")
+                    
                 await asyncio.sleep(0.5)
         except Exception as e:
             logger.error(f"Ошибка при отправке уведомления для {item.id}: {e}", exc_info=True)

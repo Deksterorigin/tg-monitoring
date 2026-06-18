@@ -16,6 +16,8 @@ class SettingsStates(StatesGroup):
     waiting_for_keywords = State()
     waiting_for_minus_words = State()
     waiting_for_min_reviews = State()
+    waiting_for_dnd_start = State()
+    waiting_for_dnd_end = State()
 
 @router.callback_query(F.data == "menu_settings")
 async def show_settings_menu(callback: CallbackQuery):
@@ -226,3 +228,102 @@ async def process_minus_words(message: Message, state: FSMContext):
         parse_mode="HTML",
         reply_markup=get_back_keyboard("menu_settings")
     )
+
+from bot.keyboards.inline import get_dnd_keyboard
+import re
+
+@router.callback_query(F.data == "menu_dnd")
+async def show_dnd_menu(callback: CallbackQuery):
+    """Показывает меню настроек Тихого часа."""
+    dnd_enabled = await db_manager.get_setting("dnd_enabled", "0") == "1"
+    dnd_start = await db_manager.get_setting("dnd_start", "23:00")
+    dnd_end = await db_manager.get_setting("dnd_end", "08:00")
+    
+    status = "🟢 Включен" if dnd_enabled else "🔴 Выключен"
+    
+    text = (
+        f"🌙 <b>Настройки Тихого часа (Do Not Disturb)</b>\n\n"
+        f"Статус: {status}\n"
+        f"Начало (не беспокоить с): <code>{dnd_start}</code>\n"
+        f"Конец (отправить дайджест в): <code>{dnd_end}</code>\n\n"
+        f"<i>Время указано по часовому поясу Германии (Europe/Berlin).</i>"
+    )
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_dnd_keyboard(dnd_enabled))
+    await callback.answer()
+
+@router.callback_query(F.data == "toggle_dnd")
+async def toggle_dnd(callback: CallbackQuery):
+    dnd_enabled = await db_manager.get_setting("dnd_enabled", "0") == "1"
+    new_status = "0" if dnd_enabled else "1"
+    await db_manager.set_setting("dnd_enabled", new_status)
+    
+    # Обновляем задачу дайджеста
+    from services.digest import update_digest_job
+    await update_digest_job()
+    
+    await show_dnd_menu(callback)
+
+@router.callback_query(F.data == "set_dnd_start")
+async def set_dnd_start_prompt(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(SettingsStates.waiting_for_dnd_start)
+    await callback.message.edit_text(
+        "🌙 <b>Введите время начала Тихого часа (HH:MM):</b>\n"
+        "Например: <code>23:00</code>",
+        parse_mode="HTML",
+        reply_markup=get_back_keyboard("menu_dnd")
+    )
+    await callback.answer()
+
+@router.message(SettingsStates.waiting_for_dnd_start)
+async def process_dnd_start(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if not re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", text):
+        await message.answer(
+            "❌ Неверный формат времени! Используйте HH:MM (от 00:00 до 23:59).",
+            parse_mode="HTML",
+            reply_markup=get_back_keyboard("menu_dnd")
+        )
+        return
+        
+    # Нормализуем 1:30 -> 01:30
+    parts = text.split(":")
+    text = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+    
+    await db_manager.set_setting("dnd_start", text)
+    await state.clear()
+    await message.answer(f"✅ Время начала Тихого часа установлено на <b>{text}</b>", parse_mode="HTML", reply_markup=get_back_keyboard("menu_dnd"))
+
+@router.callback_query(F.data == "set_dnd_end")
+async def set_dnd_end_prompt(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(SettingsStates.waiting_for_dnd_end)
+    await callback.message.edit_text(
+        "🌅 <b>Введите время окончания Тихого часа (HH:MM):</b>\n"
+        "В это время будет отправляться утренний дайджест.\n"
+        "Например: <code>08:00</code>",
+        parse_mode="HTML",
+        reply_markup=get_back_keyboard("menu_dnd")
+    )
+    await callback.answer()
+
+@router.message(SettingsStates.waiting_for_dnd_end)
+async def process_dnd_end(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if not re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", text):
+        await message.answer(
+            "❌ Неверный формат времени! Используйте HH:MM (от 00:00 до 23:59).",
+            parse_mode="HTML",
+            reply_markup=get_back_keyboard("menu_dnd")
+        )
+        return
+        
+    parts = text.split(":")
+    text = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+    
+    await db_manager.set_setting("dnd_end", text)
+    await state.clear()
+    
+    # Пересоздаем задачу дайджеста
+    from services.digest import update_digest_job
+    await update_digest_job()
+    
+    await message.answer(f"✅ Время окончания Тихого часа установлено на <b>{text}</b>", parse_mode="HTML", reply_markup=get_back_keyboard("menu_dnd"))

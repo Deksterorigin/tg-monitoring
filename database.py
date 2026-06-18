@@ -60,7 +60,10 @@ class DatabaseManager:
             "min_reviews": "10",
             "keywords": settings.DEFAULT_KEYWORDS,
             "interval_minutes": str(settings.DEFAULT_PARSE_INTERVAL_MINUTES),
-            "monitoring_enabled": "1"
+            "monitoring_enabled": "1",
+            "dnd_enabled": "0",
+            "dnd_start": "23:00",
+            "dnd_end": "08:00"
         }
 
         for key, val in default_settings.items():
