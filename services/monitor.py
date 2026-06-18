@@ -71,6 +71,9 @@ async def run_monitoring_cycle():
     keywords_str = await db_manager.get_setting("keywords", "")
     keywords = [k.strip() for k in keywords_str.split(",") if k.strip()]
 
+    minus_words_str = await db_manager.get_setting("minus_words", "")
+    minus_words = [w.strip().lower() for w in minus_words_str.split(",") if w.strip()]
+
     if not keywords:
         logger.warning("Список ключевых слов пуст. Мониторинг пропущен.")
         return
@@ -85,6 +88,12 @@ async def run_monitoring_cycle():
                 items: List[ParsedItem] = await parser.parse(keyword)
                 
                 for item in items:
+                    # Проверка на минус-слова
+                    if minus_words:
+                        title_lower = item.title.lower()
+                        if any(mw in title_lower for mw in minus_words):
+                            continue
+
                     # Проверяем условия (цена и не видели ли ранее)
                     if min_price_usd <= item.price_usd <= max_price_usd:
                         seen = await db_manager.is_item_seen(item.id)

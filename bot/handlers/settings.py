@@ -14,6 +14,7 @@ class SettingsStates(StatesGroup):
     waiting_for_min_price = State()
     waiting_for_price = State()
     waiting_for_keywords = State()
+    waiting_for_minus_words = State()
 
 @router.callback_query(F.data == "menu_settings")
 async def show_settings_menu(callback: CallbackQuery):
@@ -21,12 +22,15 @@ async def show_settings_menu(callback: CallbackQuery):
     min_price = await db_manager.get_setting("min_price_usd", "0.0")
     max_price = await db_manager.get_setting("max_price_usd", "10.0")
     keywords = await db_manager.get_setting("keywords", "Не заданы")
+    minus_words = await db_manager.get_setting("minus_words", "")
+    minus_display = minus_words if minus_words else "Нет"
     
     text = (
         f"⚙️ <b>Настройки поиска подписок</b>\n\n"
         f"📉 Минимальная цена: <code>{min_price} $</code>\n"
         f"📈 Максимальная цена: <code>{max_price} $</code>\n"
-        f"🔍 Ключевые слова: <code>{keywords}</code>\n\n"
+        f"🔍 Ключевые слова: <code>{keywords}</code>\n"
+        f"🚫 Минус-слова: <code>{minus_display}</code>\n\n"
         f"Выберите пункт меню для изменения:"
     )
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_settings_keyboard())
@@ -141,6 +145,43 @@ async def process_keywords(message: Message, state: FSMContext):
     
     await message.answer(
         f"✅ Ключевые слова успешно обновлены:\n<code>{keywords}</code>",
+        parse_mode="HTML",
+        reply_markup=get_back_keyboard("menu_settings")
+    )
+
+@router.callback_query(F.data == "set_minus_words")
+async def set_minus_words_prompt(callback: CallbackQuery, state: FSMContext):
+    """Запрос на ввод минус-слов."""
+    await state.set_state(SettingsStates.waiting_for_minus_words)
+    current_minus = await db_manager.get_setting("minus_words", "")
+    await callback.message.edit_text(
+        f"🚫 <b>Введите минус-слова через запятую:</b>\n\n"
+        f"Товары, содержащие эти слова в названии, будут игнорироваться.\n\n"
+        f"Текущие: <code>{current_minus if current_minus else 'Нет'}</code>\n\n"
+        f"Пример: <code>общий, аренда, shared</code>\n"
+        f"<i>Чтобы очистить список, отправьте 0 или -</i>",
+        parse_mode="HTML",
+        reply_markup=get_back_keyboard("menu_settings")
+    )
+    await callback.answer()
+
+@router.message(SettingsStates.waiting_for_minus_words)
+async def process_minus_words(message: Message, state: FSMContext):
+    """Сохранение новых минус-слов."""
+    raw_text = message.text.strip()
+    
+    if raw_text in ["0", "-"]:
+        minus_words = ""
+    else:
+        # Чистим пробелы вокруг слов и приводим к нижнему регистру
+        minus_words = ",".join([k.strip().lower() for k in raw_text.split(",") if k.strip()])
+    
+    await db_manager.set_setting("minus_words", minus_words)
+    await state.clear()
+    
+    display = minus_words if minus_words else "Очищены (фильтр отключен)"
+    await message.answer(
+        f"✅ Минус-слова успешно обновлены:\n<code>{display}</code>",
         parse_mode="HTML",
         reply_markup=get_back_keyboard("menu_settings")
     )
