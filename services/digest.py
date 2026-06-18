@@ -42,7 +42,8 @@ async def send_morning_digest():
                 message_lines.append(f"  ⏳ <i>{duration}</i>")
                 # Берём только лучшую цену
                 best_item = min(items, key=lambda x: x["price_usd"])
-                message_lines.append(f"      💰 {best_item['price_rub']} ₽ (~{best_item['price_usd']} $) на {best_item['platform']}")
+                drop_text = f" 📉 (Упало на {best_item['price_drop']} $)" if best_item.get('price_drop', 0) > 0 else ""
+                message_lines.append(f"      💰 {best_item['price_rub']} ₽ (~{best_item['price_usd']} $) на {best_item['platform']}{drop_text}")
             message_lines.append("")
             
         text = "\n".join(message_lines)

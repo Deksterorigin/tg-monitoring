@@ -142,6 +142,9 @@ class DatabaseManager:
             logger.error(f"Ошибка при сохранении настройки {key}: {e}")
 
     async def set_latest_snapshot(self, snapshot_json: str):
+        old_snapshot = await self.get_latest_snapshot()
+        if old_snapshot:
+            await self.set_setting("previous_snapshot", old_snapshot)
         await self.set_setting("latest_snapshot", snapshot_json)
 
     async def get_latest_snapshot(self) -> Optional[str]:

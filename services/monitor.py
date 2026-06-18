@@ -231,10 +231,29 @@ async def run_monitoring_cycle():
         
         await asyncio.sleep(2)
 
+    # Извлекаем предыдущий срез для аналитики падения цен
+    import json
+    previous_snapshot_str = await db_manager.get_setting("previous_snapshot", "[]")
+    try:
+        prev_data = json.loads(previous_snapshot_str)
+        # Создаем словарь для быстрого поиска: (ai_category, duration) -> min_price_usd
+        prev_prices = {}
+        for item in prev_data:
+            key = (item["ai_category"], item["duration"])
+            if key not in prev_prices or item["price_usd"] < prev_prices[key]:
+                prev_prices[key] = item["price_usd"]
+    except Exception:
+        prev_prices = {}
+
     # --- Отправка уведомлений только по лучшим сделкам ---
     sent_count = 0
     snapshot = []
     for (platform, ai_category, duration), item in best_deals.items():
+        price_drop = 0
+        key = (ai_category, duration)
+        if key in prev_prices and item.price_usd < prev_prices[key]:
+            price_drop = round(prev_prices[key] - item.price_usd, 2)
+
         # Добавляем в снимок
         snapshot.append({
             "ai_category": ai_category,
@@ -243,7 +262,8 @@ async def run_monitoring_cycle():
             "title": item.title,
             "price_rub": item.price_rub,
             "price_usd": item.price_usd,
-            "url": item.url
+            "url": item.url,
+            "price_drop": price_drop
         })
         try:
             seen = await db_manager.is_item_seen(item.id)

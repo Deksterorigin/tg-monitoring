@@ -136,7 +136,8 @@ async def show_category_deals(callback: CallbackQuery):
     for duration in sorted(grouped.keys()):
         lines.append(f"  ⏳ <i>{duration}</i>")
         for item in sorted(grouped[duration], key=lambda x: x['price_usd']):
-            lines.append(f"    • {item['platform']}: {item['price_rub']} ₽ (~{item['price_usd']}$) - <a href='{item['url']}'>Ссылка</a>")
+            drop_text = f" 📉 (Упало на {item['price_drop']} $)" if item.get('price_drop', 0) > 0 else ""
+            lines.append(f"    • {item['platform']}: {item['price_rub']} ₽ (~{item['price_usd']}$){drop_text} - <a href='{item['url']}'>Ссылка</a>")
         lines.append("")
         
     text = "\n".join(lines)
