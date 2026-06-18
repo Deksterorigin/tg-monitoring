@@ -24,6 +24,7 @@ class DatabaseManager:
         """Инициализация базы данных SQLite и создание таблиц."""
         logger.info("Инициализация базы данных SQLite...")
         async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("PRAGMA journal_mode=WAL;")
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS admins (
                     telegram_id INTEGER PRIMARY KEY

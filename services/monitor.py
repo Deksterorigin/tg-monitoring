@@ -67,29 +67,33 @@ from datetime import datetime
 
 async def is_dnd_active() -> bool:
     """Проверяет, попадает ли текущее время сервера (Европа/Берлин) в интервал Тихого часа."""
-    dnd_enabled = await db_manager.get_setting("dnd_enabled", "0")
-    if dnd_enabled != "1":
-        return False
+    try:
+        dnd_enabled = await db_manager.get_setting("dnd_enabled", "0")
+        if dnd_enabled != "1":
+            return False
+            
+        dnd_start = await db_manager.get_setting("dnd_start", "23:00")
+        dnd_end = await db_manager.get_setting("dnd_end", "08:00")
         
-    dnd_start = await db_manager.get_setting("dnd_start", "23:00")
-    dnd_end = await db_manager.get_setting("dnd_end", "08:00")
-    
-    tz = pytz.timezone('Europe/Berlin')
-    now = datetime.now(tz)
-    
-    start_h, start_m = map(int, dnd_start.split(":"))
-    end_h, end_m = map(int, dnd_end.split(":"))
-    
-    current_minutes = now.hour * 60 + now.minute
-    start_minutes = start_h * 60 + start_m
-    end_minutes = end_h * 60 + end_m
-    
-    if start_minutes < end_minutes:
-        # Например, с 10:00 до 18:00
-        return start_minutes <= current_minutes < end_minutes
-    else:
-        # Например, с 23:00 до 08:00 (переход через полночь)
-        return current_minutes >= start_minutes or current_minutes < end_minutes
+        tz = pytz.timezone('Europe/Berlin')
+        now = datetime.now(tz)
+        
+        start_h, start_m = map(int, dnd_start.split(":"))
+        end_h, end_m = map(int, dnd_end.split(":"))
+        
+        current_minutes = now.hour * 60 + now.minute
+        start_minutes = start_h * 60 + start_m
+        end_minutes = end_h * 60 + end_m
+        
+        if start_minutes < end_minutes:
+            # Например, с 10:00 до 18:00
+            return start_minutes <= current_minutes < end_minutes
+        else:
+            # Например, с 23:00 до 08:00 (переход через полночь)
+            return current_minutes >= start_minutes or current_minutes < end_minutes
+    except Exception as e:
+        logger.error(f"Ошибка при проверке активности Тихого часа (DND): {e}", exc_info=True)
+        return False
 
 
 def analyze_item(title: str) -> Tuple[str, str]:
