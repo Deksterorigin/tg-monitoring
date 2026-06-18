@@ -9,6 +9,85 @@ from urllib.parse import urljoin
 
 logger = logging.getLogger(__name__)
 
+# Ресурсы, которые нужно блокировать для экономии памяти
+BLOCKED_RESOURCE_TYPES = {"image", "media", "font", "stylesheet", "texttrack", "eventsource", "websocket"}
+
+# Домены рекламы и аналитики, которые нужно блокировать
+BLOCKED_DOMAINS = [
+    "google-analytics.com", "googletagmanager.com", "mc.yandex.ru",
+    "doubleclick.net", "facebook.net", "vk.com/rtrg",
+    "top-fwz1.mail.ru", "connect.facebook.net", "cdn.amplitude.com",
+]
+
+# Максимальные аргументы Chromium для экономии памяти (особенно для 512 МБ Render)
+CHROMIUM_MEMORY_ARGS = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-breakpad",
+    "--disable-component-extensions-with-background-pages",
+    "--disable-component-update",
+    "--disable-default-apps",
+    "--disable-domain-reliability",
+    "--disable-features=TranslateUI,BlinkGenPropertyTrees,AudioServiceOutOfProcess,IsolateOrigins,site-per-process",
+    "--disable-hang-monitor",
+    "--disable-ipc-flooding-protection",
+    "--disable-popup-blocking",
+    "--disable-prompt-on-repost",
+    "--disable-renderer-backgrounding",
+    "--disable-sync",
+    "--enable-features=NetworkService,NetworkServiceInProcess",
+    "--force-color-profile=srgb",
+    "--metrics-recording-only",
+    "--no-first-run",
+    "--password-store=basic",
+    "--use-mock-keychain",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-software-rasterizer",
+    "--disable-logging",
+    "--disable-databases",
+    "--disable-canvas-aa",
+    "--disable-2d-canvas-clip-aa",
+    "--disable-gl-drawing-for-tests",
+    "--disable-remote-fonts",
+    "--disable-notifications",
+    "--disable-offer-store-unmasked-wallet-cards",
+    "--disable-offer-upload-credit-cards",
+    "--disable-speech-api",
+    "--hide-scrollbars",
+    "--mute-audio",
+    "--no-default-browser-check",
+    "--no-pings",
+    "--disable-webgl",
+    "--js-flags=--max-old-space-size=128",
+]
+
+
+async def _block_unnecessary_resources(route):
+    """Перехватчик запросов: блокирует тяжёлые ресурсы (картинки, CSS, шрифты, медиа, аналитику)."""
+    request = route.request
+    resource_type = request.resource_type
+    url = request.url
+
+    # Блокируем по типу ресурса
+    if resource_type in BLOCKED_RESOURCE_TYPES:
+        await route.abort()
+        return
+
+    # Блокируем по домену (реклама, аналитика)
+    for domain in BLOCKED_DOMAINS:
+        if domain in url:
+            await route.abort()
+            return
+
+    await route.continue_()
+
+
 class FunPayParser(BaseParser):
     def __init__(self):
         super().__init__("FunPay")
@@ -32,7 +111,6 @@ class FunPayParser(BaseParser):
         parsed_items: List[ParsedItem] = []
         
         # Получаем прокси
-        active_proxies = await self.get_route_proxy()
         from database import db_manager
         proxies_list = await db_manager.get_active_proxies()
         
@@ -49,20 +127,19 @@ class FunPayParser(BaseParser):
                 browser = await p.chromium.launch(
                     headless=True,
                     proxy=pw_proxy,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-gpu",
-                        "--disable-extensions"
-                    ]
+                    args=CHROMIUM_MEMORY_ARGS
                 )
                 
                 context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    viewport={"width": 800, "height": 600},  # Уменьшенный viewport для экономии памяти
+                    java_script_enabled=True  # JS нужен для автокомплита
                 )
                 
                 page = await context.new_page()
+                
+                # Включаем перехват запросов для блокировки тяжёлых ресурсов
+                await page.route("**/*", _block_unnecessary_resources)
                 
                 # Шаг 1. Переходим на главную страницу FunPay
                 logger.info(f"[{self.platform_name}] Открытие главной страницы")
@@ -92,17 +169,15 @@ class FunPayParser(BaseParser):
                 logger.info(f"[{self.platform_name}] Найдено {len(category_urls)} разделов для парсинга")
                 
                 if not category_urls:
-                    # Если автокомплит не дал результатов, попробуем использовать ключевое слово как ID раздела напрямую (если это число)
                     if keyword.isdigit():
                         category_urls.append((f"https://funpay.com/lots/{keyword}/", f"Раздел {keyword}"))
                 
                 # Шаг 4. Обходим категории и парсим лоты
-                # Ограничиваем обход первыми 3 категориями, чтобы избежать капчи и таймаутов
                 for target_url, category_name in category_urls[:3]:
                     logger.info(f"[{self.platform_name}] Парсинг категории '{category_name}': {target_url}")
                     try:
                         await page.goto(target_url, timeout=30000, wait_until="domcontentloaded")
-                        await page.wait_for_timeout(2000) # Даем отрендериться
+                        await page.wait_for_timeout(2000)
                         
                         content = await page.content()
                         soup = BeautifulSoup(content, "html.parser")
@@ -139,7 +214,7 @@ class FunPayParser(BaseParser):
                                 if not price_num_match:
                                     continue
                                     
-                                # Очищаем цену (поддержка non-breaking space и любых разделителей тысяч)
+                                # Очищаем цену
                                 price_val_str = re.sub(r"\s+", "", price_num_match.group(1)).replace(",", ".")
                                 price_val = float(price_val_str)
                                 

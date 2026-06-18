@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import gc
 from typing import List
 from bot_instance import bot
 from database import db_manager
@@ -11,13 +12,17 @@ from parsers.playerok import PlayerokParser
 
 logger = logging.getLogger(__name__)
 
-# Инициализируем парсеры
+# Инициализируем парсеры: сначала лёгкие (HTTP), потом тяжёлые (Playwright)
+# Это позволяет минимизировать пиковое потребление памяти
 PARSERS = [
-    FunPayParser(),
-    PlatiParser(),
-    GGSelParser(),
-    PlayerokParser()
+    PlatiParser(),     # HTTP-парсер (лёгкий)
+    GGSelParser(),     # HTTP-парсер (лёгкий)
+    FunPayParser(),    # Playwright (тяжёлый) — запускается после лёгких
+    PlayerokParser()   # Playwright (тяжёлый) — запускается последним
 ]
+
+# Парсеры, использующие Playwright (требуют gc.collect() после работы)
+HEAVY_PARSERS = {"FunPay", "Playerok"}
 
 async def send_notification_to_admins(item: ParsedItem):
     """Отправляет оповещение всем администраторам."""
@@ -88,7 +93,12 @@ async def run_monitoring_cycle():
             except Exception as e:
                 logger.error(f"Ошибка парсера {parser.platform_name} по запросу '{keyword}': {e}", exc_info=True)
             
-            # Небольшая пауза между запросами к разным парсерам для снижения нагрузки
+            # Принудительная сборка мусора после тяжёлых парсеров (Playwright/Chromium)
+            if parser.platform_name in HEAVY_PARSERS:
+                gc.collect()
+                logger.debug(f"gc.collect() выполнен после {parser.platform_name}")
+            
+            # Пауза между запросами к разным парсерам для снижения нагрузки
             await asyncio.sleep(2)
         
         await asyncio.sleep(2)

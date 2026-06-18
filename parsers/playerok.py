@@ -8,6 +8,85 @@ from urllib.parse import urljoin
 
 logger = logging.getLogger(__name__)
 
+# Ресурсы, которые нужно блокировать для экономии памяти
+BLOCKED_RESOURCE_TYPES = {"image", "media", "font", "stylesheet", "texttrack", "eventsource", "websocket"}
+
+# Домены рекламы и аналитики, которые нужно блокировать
+BLOCKED_DOMAINS = [
+    "google-analytics.com", "googletagmanager.com", "mc.yandex.ru",
+    "doubleclick.net", "facebook.net", "vk.com/rtrg",
+    "top-fwz1.mail.ru", "connect.facebook.net", "cdn.amplitude.com",
+]
+
+# Максимальные аргументы Chromium для экономии памяти (особенно для 512 МБ Render)
+CHROMIUM_MEMORY_ARGS = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-breakpad",
+    "--disable-component-extensions-with-background-pages",
+    "--disable-component-update",
+    "--disable-default-apps",
+    "--disable-domain-reliability",
+    "--disable-features=TranslateUI,BlinkGenPropertyTrees,AudioServiceOutOfProcess,IsolateOrigins,site-per-process",
+    "--disable-hang-monitor",
+    "--disable-ipc-flooding-protection",
+    "--disable-popup-blocking",
+    "--disable-prompt-on-repost",
+    "--disable-renderer-backgrounding",
+    "--disable-sync",
+    "--enable-features=NetworkService,NetworkServiceInProcess",
+    "--force-color-profile=srgb",
+    "--metrics-recording-only",
+    "--no-first-run",
+    "--password-store=basic",
+    "--use-mock-keychain",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-software-rasterizer",
+    "--disable-logging",
+    "--disable-databases",
+    "--disable-canvas-aa",
+    "--disable-2d-canvas-clip-aa",
+    "--disable-gl-drawing-for-tests",
+    "--disable-remote-fonts",
+    "--disable-notifications",
+    "--disable-offer-store-unmasked-wallet-cards",
+    "--disable-offer-upload-credit-cards",
+    "--disable-speech-api",
+    "--hide-scrollbars",
+    "--mute-audio",
+    "--no-default-browser-check",
+    "--no-pings",
+    "--disable-webgl",
+    "--js-flags=--max-old-space-size=128",
+]
+
+
+async def _block_unnecessary_resources(route):
+    """Перехватчик запросов: блокирует тяжёлые ресурсы (картинки, CSS, шрифты, медиа, аналитику)."""
+    request = route.request
+    resource_type = request.resource_type
+    url = request.url
+
+    # Блокируем по типу ресурса
+    if resource_type in BLOCKED_RESOURCE_TYPES:
+        await route.abort()
+        return
+
+    # Блокируем по домену (реклама, аналитика)
+    for domain in BLOCKED_DOMAINS:
+        if domain in url:
+            await route.abort()
+            return
+
+    await route.continue_()
+
+
 class PlayerokParser(BaseParser):
     def __init__(self):
         super().__init__("Playerok")
@@ -47,20 +126,18 @@ class PlayerokParser(BaseParser):
                 browser = await p.chromium.launch(
                     headless=True,
                     proxy=pw_proxy,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-gpu",
-                        "--disable-extensions"
-                    ]
+                    args=CHROMIUM_MEMORY_ARGS
                 )
                 
                 context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    viewport={"width": 800, "height": 600},  # Уменьшенный viewport для экономии памяти
                 )
                 
                 page = await context.new_page()
+                
+                # Включаем перехват запросов для блокировки тяжёлых ресурсов
+                await page.route("**/*", _block_unnecessary_resources)
                 
                 # Шаг 1. Переходим на главную страницу Playerok
                 logger.info(f"[{self.platform_name}] Открытие главной страницы")
@@ -90,16 +167,13 @@ class PlayerokParser(BaseParser):
                                 category_urls.add(full_url)
                 
                 # Фолбэки, если автокомплит не дал ссылок
-                # 1. Пробуем прямую ссылку на раздел игры
                 category_urls.add(f"https://playerok.com/games/{keyword.lower()}")
-                # 2. Пробуем прямую ссылку на подраздел
                 category_urls.add(f"https://playerok.com/{keyword.lower()}")
                 
                 category_urls_list = list(category_urls)
                 logger.info(f"[{self.platform_name}] Сформировано {len(category_urls_list)} потенциальных разделов для проверки")
                 
                 # Обходим разделы и парсим товары
-                # Ограничиваем первыми 3 разделами
                 for target_url in category_urls_list[:3]:
                     logger.info(f"[{self.platform_name}] Проверка раздела: {target_url}")
                     try:
@@ -107,6 +181,7 @@ class PlayerokParser(BaseParser):
                         await page.wait_for_timeout(3000)
                         
                         content = await page.content()
+                        from bs4 import BeautifulSoup
                         soup = BeautifulSoup(content, "html.parser")
                         
                         # Карточки товаров на Playerok имеют ссылки на "/products/[id]-[slug]"
@@ -154,7 +229,7 @@ class PlayerokParser(BaseParser):
                                 if not price_text:
                                     continue
                                     
-                                # Очищаем цену (поддержка non-breaking space и любых разделителей тысяч)
+                                # Очищаем цену
                                 price_num_match = re.search(r"([\d\s.,]+)", price_text)
                                 if not price_num_match:
                                     continue
