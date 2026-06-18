@@ -1,7 +1,8 @@
 import logging
 import asyncio
 import gc
-from typing import List
+import re
+from typing import Dict, List, Tuple
 from bot_instance import bot
 from database import db_manager
 from parsers.base import ParsedItem
@@ -24,22 +25,91 @@ PARSERS = [
 # Парсеры, использующие Playwright (требуют gc.collect() после работы)
 HEAVY_PARSERS = {"FunPay", "Playerok"}
 
-async def send_notification_to_admins(item: ParsedItem):
+# --- Словари для классификации товаров ---
+
+# Категории ИИ-сервисов: ключ — каноническое название, значения — паттерны для поиска
+AI_CATEGORIES = {
+    "ChatGPT": [r"chatgpt", r"chat\s*gpt", r"openai", r"gpt[\s\-]?4", r"gpt[\s\-]?3"],
+    "Claude": [r"claude", r"anthropic"],
+    "Midjourney": [r"midjourney", r"mid\s*journey", r"миджорни"],
+    "Perplexity": [r"perplexity", r"перплексити"],
+    "Gemini": [r"gemini", r"google\s*ai", r"джемини"],
+    "Copilot": [r"copilot", r"github\s*copilot"],
+    "Cursor": [r"cursor"],
+    "Suno": [r"suno"],
+    "Runway": [r"runway"],
+    "Pika": [r"pika"],
+    "Adobe Firefly": [r"firefly", r"adobe\s*firefly"],
+    "Notion AI": [r"notion\s*ai"],
+    "Sora": [r"sora"],
+}
+
+# Паттерны для определения срока подписки
+# ВАЖНО: порядок имеет значение — более специфичные паттерны проверяются первыми
+DURATION_PATTERNS = [
+    # Годовые
+    (r"\b(?:1\s*год|12\s*мес|на\s*год|годов|annual|yearly|1\s*year)", "1 год"),
+    # Полугодовые
+    (r"\b(?:6\s*мес|180\s*дн|полгод|6\s*month|half\s*year)", "6 месяцев"),
+    # 3 месяца
+    (r"\b(?:3\s*мес|90\s*дн|3\s*month)", "3 месяца"),
+    # 2 месяца
+    (r"\b(?:2\s*мес|60\s*дн|2\s*month)", "2 месяца"),
+    # 1 месяц (самый общий — проверяется последним среди месячных)
+    (r"\b(?:1\s*мес|мес(?:яц)?(?:\s|$)|30\s*дн|на\s*месяц|monthly|1\s*month)", "1 месяц"),
+    # Недельные
+    (r"\b(?:1\s*недел|7\s*дн|на\s*неделю|weekly|1\s*week)", "1 неделя"),
+]
+
+
+def analyze_item(title: str) -> Tuple[str, str]:
+    """Анализирует название товара и определяет категорию ИИ и срок подписки.
+    
+    Args:
+        title: Название товара.
+    
+    Returns:
+        Кортеж (ai_category, duration), например ("ChatGPT", "1 месяц").
+    """
+    title_lower = title.lower()
+    
+    # --- Определяем категорию ИИ ---
+    ai_category = "Другое"
+    for category, patterns in AI_CATEGORIES.items():
+        for pattern in patterns:
+            if re.search(pattern, title_lower):
+                ai_category = category
+                break
+        if ai_category != "Другое":
+            break
+    
+    # --- Определяем срок подписки ---
+    duration = "Неизвестно"
+    for pattern, dur_label in DURATION_PATTERNS:
+        if re.search(pattern, title_lower):
+            duration = dur_label
+            break
+    
+    return ai_category, duration
+
+
+async def send_notification_to_admins(item: ParsedItem, ai_category: str, duration: str):
     """Отправляет оповещение всем администраторам."""
     admins = await db_manager.get_admins()
     
     # Форматируем сообщение
     message_text = (
-        f"🔔 <b>Найден дешевый товар!</b>\n\n"
-        f"<b>Платформа:</b> {item.platform}\n"
-        f"<b>Название:</b> {item.title}\n"
-        f"<b>Цена:</b> {item.price_rub} ₽ (~{item.price_usd} $)\n\n"
+        f"🔔 <b>Лучшая цена в категории!</b>\n\n"
+        f"🤖 <b>Нейросеть:</b> {ai_category}\n"
+        f"⏳ <b>Срок:</b> {duration}\n"
+        f"🏪 <b>Платформа:</b> {item.platform}\n"
+        f"📝 <b>Название:</b> {item.title}\n"
+        f"💰 <b>Цена:</b> {item.price_rub} ₽ (~{item.price_usd} $)\n\n"
         f"🔗 <a href='{item.url}'>Открыть объявление</a>"
     )
 
     for admin_id in admins:
         try:
-            # Используем HTML-разметку для ссылок
             await bot.send_message(
                 chat_id=admin_id,
                 text=message_text,
@@ -80,6 +150,9 @@ async def run_monitoring_cycle():
 
     logger.info(f"Запуск мониторинга: ключевые слова={keywords}, цена: от {min_price_usd}$ до {max_price_usd}$")
 
+    # Словарь лучших сделок: ключ=(platform, ai_category, duration), значение=ParsedItem
+    best_deals: Dict[Tuple[str, str, str], ParsedItem] = {}
+
     # Для каждого ключевого слова запускаем все парсеры
     for keyword in keywords:
         for parser in PARSERS:
@@ -94,16 +167,18 @@ async def run_monitoring_cycle():
                         if any(mw in title_lower for mw in minus_words):
                             continue
 
-                    # Проверяем условия (цена и не видели ли ранее)
-                    if min_price_usd <= item.price_usd <= max_price_usd:
-                        seen = await db_manager.is_item_seen(item.id)
-                        if not seen:
-                            # Добавляем в просмотренные
-                            await db_manager.add_seen_item(item.id)
-                            # Отправляем уведомление
-                            await send_notification_to_admins(item)
-                            # Небольшая пауза между отправкой уведомлений
-                            await asyncio.sleep(0.5)
+                    # Проверяем ценовой диапазон
+                    if not (min_price_usd <= item.price_usd <= max_price_usd):
+                        continue
+
+                    # Классифицируем товар
+                    ai_category, duration = analyze_item(item.title)
+                    key = (item.platform, ai_category, duration)
+
+                    # Сохраняем только самый дешёвый товар в каждой группе
+                    if key not in best_deals or item.price_usd < best_deals[key].price_usd:
+                        best_deals[key] = item
+
             except Exception as e:
                 logger.error(f"Ошибка парсера {parser.platform_name} по запросу '{keyword}': {e}", exc_info=True)
             
@@ -117,7 +192,20 @@ async def run_monitoring_cycle():
         
         await asyncio.sleep(2)
 
-    logger.info("Цикл мониторинга успешно завершен.")
+    # --- Отправка уведомлений только по лучшим сделкам ---
+    sent_count = 0
+    for (platform, ai_category, duration), item in best_deals.items():
+        try:
+            seen = await db_manager.is_item_seen(item.id)
+            if not seen:
+                await db_manager.add_seen_item(item.id)
+                await send_notification_to_admins(item, ai_category, duration)
+                sent_count += 1
+                await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.error(f"Ошибка при отправке уведомления для {item.id}: {e}", exc_info=True)
+
+    logger.info(f"Цикл мониторинга завершён. Лучших сделок: {len(best_deals)}, отправлено: {sent_count}.")
 
 def update_monitoring_job(interval_minutes: int):
     """Обновляет интервал или добавляет задачу мониторинга в планировщик."""
