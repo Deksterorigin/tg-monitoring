@@ -2,6 +2,7 @@ import logging
 import asyncio
 import gc
 import re
+import json
 from typing import Dict, List, Tuple
 from bot_instance import bot
 from database import db_manager
@@ -84,7 +85,7 @@ def analyze_item(title: str) -> Tuple[str, str]:
             break
     
     # --- Определяем срок подписки ---
-    duration = "Неизвестно"
+    duration = "Без срока"
     for pattern, dur_label in DURATION_PATTERNS:
         if re.search(pattern, title_lower):
             duration = dur_label
@@ -194,7 +195,18 @@ async def run_monitoring_cycle():
 
     # --- Отправка уведомлений только по лучшим сделкам ---
     sent_count = 0
+    snapshot = []
     for (platform, ai_category, duration), item in best_deals.items():
+        # Добавляем в снимок
+        snapshot.append({
+            "ai_category": ai_category,
+            "duration": duration,
+            "platform": platform,
+            "title": item.title,
+            "price_rub": item.price_rub,
+            "price_usd": item.price_usd,
+            "url": item.url
+        })
         try:
             seen = await db_manager.is_item_seen(item.id)
             if not seen:
@@ -204,6 +216,13 @@ async def run_monitoring_cycle():
                 await asyncio.sleep(0.5)
         except Exception as e:
             logger.error(f"Ошибка при отправке уведомления для {item.id}: {e}", exc_info=True)
+
+    # Сохраняем снимок в БД
+    try:
+        await db_manager.set_latest_snapshot(json.dumps(snapshot, ensure_ascii=False))
+        logger.info("Срез лучших цен успешно сохранен в БД.")
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении среза цен: {e}")
 
     logger.info(f"Цикл мониторинга завершён. Лучших сделок: {len(best_deals)}, отправлено: {sent_count}.")
 

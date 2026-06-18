@@ -137,6 +137,12 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Ошибка при сохранении настройки {key}: {e}")
 
+    async def set_latest_snapshot(self, snapshot_json: str):
+        await self.set_setting("latest_snapshot", snapshot_json)
+
+    async def get_latest_snapshot(self) -> Optional[str]:
+        return await self.get_setting("latest_snapshot", None)
+
     # --- Управление прокси ---
     async def add_proxy(self, proxy_str: str) -> bool:
         try:

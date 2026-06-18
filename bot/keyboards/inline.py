@@ -6,6 +6,9 @@ def get_main_menu_keyboard(monitoring_enabled: bool) -> InlineKeyboardMarkup:
     
     buttons = [
         [
+            InlineKeyboardButton(text="📊 Текущие лучшие цены", callback_data="show_current_deals")
+        ],
+        [
             InlineKeyboardButton(text="⚙️ Настройки поиска", callback_data="menu_settings"),
             InlineKeyboardButton(text="⏱ Интервал парсинга", callback_data="menu_interval")
         ],

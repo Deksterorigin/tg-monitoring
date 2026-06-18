@@ -1,8 +1,9 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart
+import json
 from database import db_manager
-from bot.keyboards.inline import get_main_menu_keyboard
+from bot.keyboards.inline import get_main_menu_keyboard, get_back_keyboard
 from bot.filters.admin_filter import IsAdminFilter
 from services.monitor import toggle_monitoring_job
 
@@ -74,3 +75,48 @@ async def toggle_monitoring(callback: CallbackQuery):
         reply_markup=get_main_menu_keyboard(new_status == "1")
     )
     await callback.answer(f"Мониторинг {'запущен' if new_status == '1' else 'остановлен'}")
+
+@router.callback_query(F.data == "show_current_deals")
+async def show_current_deals(callback: CallbackQuery):
+    """Отображает последние сохраненные лучшие цены."""
+    snapshot_json = await db_manager.get_latest_snapshot()
+    if not snapshot_json:
+        await callback.answer("Данных пока нет, дождитесь окончания парсинга.", show_alert=True)
+        return
+        
+    try:
+        snapshot = json.loads(snapshot_json)
+    except Exception as e:
+        await callback.answer("Ошибка при чтении данных.", show_alert=True)
+        return
+        
+    if not snapshot:
+        await callback.answer("Данных пока нет, дождитесь окончания парсинга.", show_alert=True)
+        return
+        
+    # Группируем данные: ai_category -> duration -> list of items
+    from collections import defaultdict
+    grouped = defaultdict(lambda: defaultdict(list))
+    for item in snapshot:
+        grouped[item['ai_category']][item['duration']].append(item)
+        
+    lines = ["📊 <b>Текущие лучшие цены:</b>\n"]
+    for ai_category in sorted(grouped.keys()):
+        lines.append(f"🤖 <b>{ai_category}</b>")
+        for duration in sorted(grouped[ai_category].keys()):
+            lines.append(f"  ⏳ <i>{duration}</i>")
+            for item in sorted(grouped[ai_category][duration], key=lambda x: x['price_usd']):
+                lines.append(f"    • {item['platform']}: {item['price_rub']} ₽ (~{item['price_usd']}$) - <a href='{item['url']}'>Ссылка</a>")
+        lines.append("")
+        
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:4000] + "\n\n... (данные обрезаны)"
+        
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+        reply_markup=get_back_keyboard("back_to_main")
+    )
+    await callback.answer()
