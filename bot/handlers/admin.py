@@ -3,7 +3,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart
 import json
 from database import db_manager
-from bot.keyboards.inline import get_main_menu_keyboard, get_back_keyboard
+from bot.keyboards.inline import get_main_menu_keyboard, get_back_keyboard, get_categories_keyboard, get_back_to_categories_keyboard
 from bot.filters.admin_filter import IsAdminFilter
 from services.monitor import toggle_monitoring_job
 
@@ -78,7 +78,7 @@ async def toggle_monitoring(callback: CallbackQuery):
 
 @router.callback_query(F.data == "show_current_deals")
 async def show_current_deals(callback: CallbackQuery):
-    """Отображает последние сохраненные лучшие цены."""
+    """Отображает список доступных категорий для лучших цен."""
     snapshot_json = await db_manager.get_latest_snapshot()
     if not snapshot_json:
         await callback.answer("Данных пока нет, дождитесь окончания парсинга.", show_alert=True)
@@ -94,19 +94,49 @@ async def show_current_deals(callback: CallbackQuery):
         await callback.answer("Данных пока нет, дождитесь окончания парсинга.", show_alert=True)
         return
         
-    # Группируем данные: ai_category -> duration -> list of items
-    from collections import defaultdict
-    grouped = defaultdict(lambda: defaultdict(list))
-    for item in snapshot:
-        grouped[item['ai_category']][item['duration']].append(item)
+    # Собираем уникальные категории
+    categories = sorted(list(set(item['ai_category'] for item in snapshot)))
+    
+    text = "📊 <b>Текущие лучшие цены</b>\n\nВыберите категорию:"
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=get_categories_keyboard(categories)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("show_cat_"))
+async def show_category_deals(callback: CallbackQuery):
+    """Отображает лучшие цены для выбранной категории."""
+    category_name = callback.data[len("show_cat_"):]
+    
+    snapshot_json = await db_manager.get_latest_snapshot()
+    if not snapshot_json:
+        await callback.answer("Данных пока нет.", show_alert=True)
+        return
         
-    lines = ["📊 <b>Текущие лучшие цены:</b>\n"]
-    for ai_category in sorted(grouped.keys()):
-        lines.append(f"🤖 <b>{ai_category}</b>")
-        for duration in sorted(grouped[ai_category].keys()):
-            lines.append(f"  ⏳ <i>{duration}</i>")
-            for item in sorted(grouped[ai_category][duration], key=lambda x: x['price_usd']):
-                lines.append(f"    • {item['platform']}: {item['price_rub']} ₽ (~{item['price_usd']}$) - <a href='{item['url']}'>Ссылка</a>")
+    try:
+        snapshot = json.loads(snapshot_json)
+    except Exception:
+        await callback.answer("Ошибка при чтении данных.", show_alert=True)
+        return
+        
+    # Группируем данные для выбранной категории: duration -> list of items
+    from collections import defaultdict
+    grouped = defaultdict(list)
+    for item in snapshot:
+        if item['ai_category'] == category_name:
+            grouped[item['duration']].append(item)
+            
+    if not grouped:
+        await callback.answer("Нет данных для этой категории.", show_alert=True)
+        return
+        
+    lines = [f"📊 <b>Лучшие цены:</b> 🤖 {category_name}\n"]
+    for duration in sorted(grouped.keys()):
+        lines.append(f"  ⏳ <i>{duration}</i>")
+        for item in sorted(grouped[duration], key=lambda x: x['price_usd']):
+            lines.append(f"    • {item['platform']}: {item['price_rub']} ₽ (~{item['price_usd']}$) - <a href='{item['url']}'>Ссылка</a>")
         lines.append("")
         
     text = "\n".join(lines)
@@ -117,6 +147,6 @@ async def show_current_deals(callback: CallbackQuery):
         text,
         parse_mode="HTML",
         disable_web_page_preview=True,
-        reply_markup=get_back_keyboard("back_to_main")
+        reply_markup=get_back_to_categories_keyboard()
     )
     await callback.answer()

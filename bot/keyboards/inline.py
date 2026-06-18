@@ -89,3 +89,17 @@ def get_back_keyboard(back_callback: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔙 Назад", callback_data=back_callback)]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_categories_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
+    buttons = []
+    for cat in categories:
+        buttons.append([InlineKeyboardButton(text=cat, callback_data=f"show_cat_{cat}")])
+    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_back_to_categories_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="show_current_deals")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
