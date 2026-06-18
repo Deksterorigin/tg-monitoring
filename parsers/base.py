@@ -15,6 +15,7 @@ class ParsedItem(BaseModel):
     price_usd: float # Цена в долларах (после конвертации)
     url: str        # Ссылка на товар
     platform: str   # Название платформы (FunPay, Plati и т.д.)
+    seller_reviews: int = 0 # Количество отзывов у продавца
 
 class BaseParser(ABC):
     def __init__(self, platform_name: str):

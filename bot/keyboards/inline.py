@@ -42,6 +42,9 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📈 Изменить макс. цену ($)", callback_data="set_max_price")
         ],
         [
+            InlineKeyboardButton(text="⭐ Мин. отзывы", callback_data="set_min_reviews")
+        ],
+        [
             InlineKeyboardButton(text="🔍 Ключевые слова", callback_data="set_keywords"),
             InlineKeyboardButton(text="🚫 Минус-слова", callback_data="set_minus_words")
         ],

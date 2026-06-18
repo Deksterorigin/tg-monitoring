@@ -229,13 +229,20 @@ class FunPayParser(BaseParser):
                                     price_rub = price_val
                                     price_usd = await currency_service.convert_rub_to_usd(price_rub)
                                     
+                                # Отзывы
+                                seller_reviews = 0
+                                reviews_match = re.search(r'(\d+)\s*отзыв', item.text, re.IGNORECASE)
+                                if reviews_match:
+                                    seller_reviews = int(reviews_match.group(1))
+                                    
                                 parsed_items.append(ParsedItem(
                                     id=f"funpay_{item_id}",
                                     title=title,
                                     price_rub=round(price_rub, 2),
                                     price_usd=round(price_usd, 2),
                                     url=item_url,
-                                    platform=self.platform_name
+                                    platform=self.platform_name,
+                                    seller_reviews=seller_reviews
                                 ))
                             except Exception as item_err:
                                 logger.error(f"[{self.platform_name}] Ошибка разбора элемента: {item_err}")

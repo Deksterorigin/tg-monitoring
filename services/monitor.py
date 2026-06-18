@@ -139,6 +139,11 @@ async def run_monitoring_cycle():
     except ValueError:
         max_price_usd = 10.0
 
+    try:
+        min_reviews = int(await db_manager.get_setting("min_reviews", "10"))
+    except ValueError:
+        min_reviews = 10
+
     keywords_str = await db_manager.get_setting("keywords", "")
     keywords = [k.strip() for k in keywords_str.split(",") if k.strip()]
 
@@ -167,6 +172,10 @@ async def run_monitoring_cycle():
                         title_lower = item.title.lower()
                         if any(mw in title_lower for mw in minus_words):
                             continue
+
+                    # Проверяем количество отзывов
+                    if item.seller_reviews < min_reviews:
+                        continue
 
                     # Проверяем ценовой диапазон
                     if not (min_price_usd <= item.price_usd <= max_price_usd):

@@ -57,6 +57,7 @@ class DatabaseManager:
             "minus_words": "",
             "min_price_usd": "0.0",
             "max_price_usd": str(settings.DEFAULT_MAX_PRICE_USD),
+            "min_reviews": "10",
             "keywords": settings.DEFAULT_KEYWORDS,
             "interval_minutes": str(settings.DEFAULT_PARSE_INTERVAL_MINUTES),
             "monitoring_enabled": "1"

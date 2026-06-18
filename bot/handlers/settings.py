@@ -15,12 +15,14 @@ class SettingsStates(StatesGroup):
     waiting_for_price = State()
     waiting_for_keywords = State()
     waiting_for_minus_words = State()
+    waiting_for_min_reviews = State()
 
 @router.callback_query(F.data == "menu_settings")
 async def show_settings_menu(callback: CallbackQuery):
     """Показывает меню настроек поиска."""
     min_price = await db_manager.get_setting("min_price_usd", "0.0")
     max_price = await db_manager.get_setting("max_price_usd", "10.0")
+    min_reviews = await db_manager.get_setting("min_reviews", "10")
     keywords = await db_manager.get_setting("keywords", "Не заданы")
     minus_words = await db_manager.get_setting("minus_words", "")
     minus_display = minus_words if minus_words else "Нет"
@@ -29,6 +31,7 @@ async def show_settings_menu(callback: CallbackQuery):
         f"⚙️ <b>Настройки поиска подписок</b>\n\n"
         f"📉 Минимальная цена: <code>{min_price} $</code>\n"
         f"📈 Максимальная цена: <code>{max_price} $</code>\n"
+        f"⭐ Мин. отзывы продавца: <code>{min_reviews}</code>\n"
         f"🔍 Ключевые слова: <code>{keywords}</code>\n"
         f"🚫 Минус-слова: <code>{minus_display}</code>\n\n"
         f"Выберите пункт меню для изменения:"
@@ -107,6 +110,44 @@ async def process_max_price(message: Message, state: FSMContext):
         await message.answer(
             "❌ <b>Ошибка!</b> Введите корректное положительное число.\n"
             "Пример: <code>10.5</code>",
+            parse_mode="HTML",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+
+@router.callback_query(F.data == "set_min_reviews")
+async def set_min_reviews_prompt(callback: CallbackQuery, state: FSMContext):
+    """Запрос на ввод минимального числа отзывов."""
+    await state.set_state(SettingsStates.waiting_for_min_reviews)
+    await callback.message.edit_text(
+        "⭐ <b>Введите минимальное количество отзывов продавца:</b>\n"
+        "Например: <code>10</code> или <code>0</code> (чтобы отключить)\n\n"
+        "<i>Товары от продавцов с меньшим числом отзывов будут игнорироваться.</i>",
+        parse_mode="HTML",
+        reply_markup=get_back_keyboard("menu_settings")
+    )
+    await callback.answer()
+
+@router.message(SettingsStates.waiting_for_min_reviews)
+async def process_min_reviews(message: Message, state: FSMContext):
+    """Сохранение минимального количества отзывов."""
+    text = message.text.strip()
+    try:
+        reviews = int(text)
+        if reviews < 0:
+            raise ValueError()
+        
+        await db_manager.set_setting("min_reviews", str(reviews))
+        await state.clear()
+        
+        await message.answer(
+            f"✅ Мин. количество отзывов успешно изменено на <b>{reviews}</b>!",
+            parse_mode="HTML",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+    except ValueError:
+        await message.answer(
+            "❌ <b>Ошибка!</b> Введите корректное целое число (>= 0).\n"
+            "Пример: <code>10</code>",
             parse_mode="HTML",
             reply_markup=get_back_keyboard("menu_settings")
         )
