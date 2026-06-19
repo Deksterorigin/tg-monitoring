@@ -11,6 +11,7 @@ from parsers.funpay import FunPayParser
 from parsers.plati import PlatiParser
 from parsers.ggsel import GGSelParser
 from parsers.playerok import PlayerokParser
+from services.browser import browser_manager
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ PARSERS = [
     PlayerokParser()   # Playwright (тяжёлый) — запускается последним
 ]
 
-# Парсеры, использующие Playwright (требуют gc.collect() после работы)
+# Парсеры, использующие Playwright (используют общий BrowserManager)
 HEAVY_PARSERS = {"FunPay", "Playerok"}
 
 # --- Словари для классификации товаров ---
@@ -161,6 +162,13 @@ async def run_monitoring_cycle():
         logger.info("Мониторинг приостановлен пользователем.")
         return
 
+    # Запускаем общий браузер для тяжёлых парсеров (один Chromium на весь цикл)
+    try:
+        await browser_manager.start()
+    except Exception as e:
+        logger.error(f"Не удалось запустить BrowserManager: {e}", exc_info=True)
+        # Продолжаем — лёгкие парсеры (HTTP) всё равно отработают
+
     # Загружаем настройки поиска
     try:
         min_price_usd = float(await db_manager.get_setting("min_price_usd", "0.0"))
@@ -225,15 +233,13 @@ async def run_monitoring_cycle():
             except Exception as e:
                 logger.error(f"Ошибка парсера {parser.platform_name} по запросу '{keyword}': {e}", exc_info=True)
             
-            # Принудительная сборка мусора после тяжёлых парсеров (Playwright/Chromium)
-            if parser.platform_name in HEAVY_PARSERS:
-                gc.collect()
-                logger.debug(f"gc.collect() выполнен после {parser.platform_name}")
-            
             # Пауза между запросами к разным парсерам для снижения нагрузки
             await asyncio.sleep(2)
         
         await asyncio.sleep(2)
+
+    # Останавливаем общий браузер и освобождаем всю память Chromium
+    await browser_manager.shutdown()
 
     # Извлекаем предыдущий срез для аналитики падения цен
     import json
