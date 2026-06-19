@@ -66,7 +66,7 @@ async def main():
     scheduler.add_job(
         self_ping,
         "interval",
-        minutes=14,
+        minutes=5,
         id="self_ping_job"
     )
     
