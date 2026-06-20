@@ -128,13 +128,15 @@ def analyze_item(title: str) -> Tuple[str, str]:
     return ai_category, duration
 
 
-async def send_notification_to_admins(item: ParsedItem, ai_category: str, duration: str):
+async def send_notification_to_admins(item: ParsedItem, ai_category: str, duration: str, price_drop: float = 0.0):
     """Отправляет оповещение всем администраторам."""
     admins = await db_manager.get_admins()
     
+    drop_text = f"\n📉 <b>Внимание, демпинг! Цена упала на {price_drop} $</b>" if price_drop > 0 else ""
+
     # Форматируем сообщение
     message_text = (
-        f"🔔 <b>Лучшая цена в категории!</b>\n\n"
+        f"🔔 <b>Лучшая цена в категории!</b>\n{drop_text}\n\n"
         f"🤖 <b>Нейросеть:</b> {ai_category}\n"
         f"⏳ <b>Срок:</b> {duration}\n"
         f"🏪 <b>Платформа:</b> {item.platform}\n"
@@ -277,13 +279,14 @@ async def run_monitoring_cycle():
         })
         try:
             seen = await db_manager.is_item_seen(item.id)
-            if not seen:
-                await db_manager.add_seen_item(item.id)
+            if not seen or price_drop > 0:
+                if not seen:
+                    await db_manager.add_seen_item(item.id)
                 
                 # Проверяем Тихий час перед отправкой
                 dnd_active = await is_dnd_active()
                 if not dnd_active:
-                    await send_notification_to_admins(item, ai_category, duration)
+                    await send_notification_to_admins(item, ai_category, duration, price_drop)
                     sent_count += 1
                 else:
                     logger.debug(f"Тихий час включен, уведомление для {item.id} пропущено.")

@@ -142,18 +142,21 @@ class BrowserManager:
     async def shutdown(self):
         """Полностью останавливает браузер и Playwright, освобождая всю память."""
         logger.info("[BrowserManager] Остановка Chromium...")
+        import asyncio
         try:
             if self._browser:
-                await self._browser.close()
+                await asyncio.wait_for(self._browser.close(), timeout=5.0)
                 self._browser = None
         except Exception as e:
             logger.error(f"[BrowserManager] Ошибка при закрытии браузера: {e}")
+            self._browser = None
         try:
             if self._playwright:
-                await self._playwright.stop()
+                await asyncio.wait_for(self._playwright.stop(), timeout=5.0)
                 self._playwright = None
         except Exception as e:
             logger.error(f"[BrowserManager] Ошибка при остановке Playwright: {e}")
+            self._playwright = None
 
         gc.collect()
         logger.info("[BrowserManager] Chromium полностью остановлен, gc.collect() выполнен.")

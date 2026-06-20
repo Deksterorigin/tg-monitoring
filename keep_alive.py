@@ -26,11 +26,19 @@ async def start_web_server() -> web.AppRunner:
     return runner
 
 async def self_ping():
-    """Отправка GET запроса на собственный URL, чтобы сервис не засыпал на Render."""
+    """Отправка GET запроса на собственный URL. 
+    ВНИМАНИЕ: На бесплатном тарифе Render это больше не работает для предотвращения сна!
+    Render игнорирует внутренние запросы. Используйте UptimeRobot."""
     url = settings.RENDER_EXTERNAL_URL
     if not url:
         logger.info("RENDER_EXTERNAL_URL не задан, self-ping пропущен.")
         return
+        
+    logger.warning(
+        f"ВНИМАНИЕ: Отправка self-ping на {url}. "
+        "Render Free Tier блокирует этот способ! Бот уснет через 15 минут. "
+        "Настройте UptimeRobot (см. README.md)."
+    )
         
     logger.info(f"Отправка self-ping на {url}...")
     try:
