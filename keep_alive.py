@@ -26,27 +26,48 @@ async def start_web_server() -> web.AppRunner:
     return runner
 
 async def self_ping():
-    """Отправка GET запроса на собственный URL. 
-    ВНИМАНИЕ: На бесплатном тарифе Render это больше не работает для предотвращения сна!
-    Render игнорирует внутренние запросы. Используйте UptimeRobot."""
+    """Отправка GET запроса на собственный URL через бесплатные прокси.
+    Это обходит политику Render (запросы изнутри контейнера игнорируются).
+    Внешний запрос через прокси не дает контейнеру уснуть."""
     url = settings.RENDER_EXTERNAL_URL
     if not url:
         logger.info("RENDER_EXTERNAL_URL не задан, self-ping пропущен.")
         return
-        
-    logger.warning(
-        f"ВНИМАНИЕ: Отправка self-ping на {url}. "
-        "Render Free Tier блокирует этот способ! Бот уснет через 15 минут. "
-        "Настройте UptimeRobot (см. README.md)."
-    )
-        
-    logger.info(f"Отправка self-ping на {url}...")
+
+    logger.info(f"Начинаем self-ping на {url} через публичные прокси...")
+    
+    proxies = []
+    try:
+        # Получаем актуальный список бесплатных HTTP прокси
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt", timeout=10) as resp:
+                if resp.status == 200:
+                    text = await resp.text()
+                    proxies = [f"http://{line.strip()}" for line in text.splitlines() if line.strip()]
+    except Exception as e:
+        logger.error(f"Не удалось получить список бесплатных прокси: {e}")
+
+    import random
+    if proxies:
+        random.shuffle(proxies)
+        # Пробуем до 5 разных прокси
+        for proxy in proxies[:5]:
+            try:
+                logger.debug(f"Пробуем пинг через прокси {proxy}")
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, proxy=proxy, timeout=10) as response:
+                        if response.status == 200:
+                            logger.info(f"Успешный self-ping через прокси {proxy}!")
+                            return # Успех, выходим
+            except Exception:
+                continue # Прокси не сработал, пробуем следующий
+
+    # Если прокси не сработали или их нет, делаем прямой пинг (как запасной вариант)
+    logger.warning("Все прокси не сработали. Выполняю прямой self-ping (может быть проигнорирован Render).")
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=10) as response:
                 if response.status == 200:
-                    logger.info("Self-ping выполнен успешно (статус 200).")
-                else:
-                    logger.warning(f"Self-ping вернул статус {response.status}")
+                    logger.info("Прямой self-ping выполнен успешно.")
     except Exception as e:
-        logger.error(f"Ошибка при выполнении self-ping: {e}")
+        logger.error(f"Ошибка при выполнении прямого self-ping: {e}")
