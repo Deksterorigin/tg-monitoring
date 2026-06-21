@@ -51,18 +51,23 @@ async def main():
         interval_minutes = 60
 
     # Задача для парсинга маркетплейсов
+    # ВАЖНО: первый запуск через 30 секунд (чтобы бот успел инициализироваться),
+    # дальше — по интервалу. НЕ используем create_task, чтобы исключить
+    # параллельный запуск двух циклов и двойное потребление памяти Chromium.
+    from datetime import datetime, timedelta
     scheduler.add_job(
         run_monitoring_cycle,
         "interval",
         minutes=interval_minutes,
-        id="monitoring_job"
+        id="monitoring_job",
+        next_run_time=datetime.now() + timedelta(seconds=30)
     )
     
     # Настраиваем задачу утреннего дайджеста
     from services.digest import update_digest_job
     await update_digest_job()
     
-    # Задача self-ping (каждые 14 минут для Render)
+    # Задача self-ping (каждые 5 минут для Render)
     scheduler.add_job(
         self_ping,
         "interval",
@@ -76,17 +81,15 @@ async def main():
     # 5. Запускаем keep-alive веб-сервер
     web_runner = await start_web_server()
 
-    # 6. Запускаем первый цикл мониторинга сразу при старте (в фоне)
-    asyncio.create_task(run_monitoring_cycle())
-
     try:
-        # 7. Запуск polling бота
+        # 6. Запуск polling бота
         logger.info("Бот запущен и готов к работе.")
         await dp.start_polling(bot)
     finally:
         # Очистка ресурсов при выключении
         logger.info("Остановка планировщика и веб-сервера...")
         scheduler.shutdown()
+        await db_manager.close()
         await web_runner.cleanup()
         await bot.session.close()
         logger.info("Бот полностью остановлен.")

@@ -17,7 +17,6 @@ async def start_web_server() -> web.AppRunner:
     runner = web.AppRunner(app)
     await runner.setup()
     
-    # Слушаем порт, указанный в .env (по умолчанию 8080)
     port = settings.PORT
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
@@ -25,49 +24,33 @@ async def start_web_server() -> web.AppRunner:
     logger.info(f"Веб-сервер запущен на порту {port}")
     return runner
 
+# Несколько надёжных бесплатных сервисов для внешнего пинга
+# Они делают GET-запрос на указанный URL, что засчитывается Render как внешний трафик
+PING_SERVICES = [
+    "https://uptime.betterstack.com/api/v1/heartbeat/",  # Better Stack
+    "https://hc-ping.com/",  # Healthchecks.io
+]
+
 async def self_ping():
-    """Отправка GET запроса на собственный URL через бесплатные прокси.
-    Это обходит политику Render (запросы изнутри контейнера игнорируются).
-    Внешний запрос через прокси не дает контейнеру уснуть."""
+    """Отправка GET запроса на собственный URL для предотвращения сна на Render.
+    
+    Используем лёгкий подход:
+    1. Прямой запрос на свой URL (работает если Render не блокирует)
+    2. Если не сработало — логируем предупреждение
+    
+    Не скачиваем огромные списки прокси — это тратит память впустую.
+    """
     url = settings.RENDER_EXTERNAL_URL
     if not url:
         logger.info("RENDER_EXTERNAL_URL не задан, self-ping пропущен.")
         return
 
-    logger.info(f"Начинаем self-ping на {url} через публичные прокси...")
-    
-    proxies = []
     try:
-        # Получаем актуальный список бесплатных HTTP прокси
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt", timeout=10) as resp:
-                if resp.status == 200:
-                    text = await resp.text()
-                    proxies = [f"http://{line.strip()}" for line in text.splitlines() if line.strip()]
-    except Exception as e:
-        logger.error(f"Не удалось получить список бесплатных прокси: {e}")
-
-    import random
-    if proxies:
-        random.shuffle(proxies)
-        # Пробуем до 5 разных прокси
-        for proxy in proxies[:5]:
-            try:
-                logger.debug(f"Пробуем пинг через прокси {proxy}")
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, proxy=proxy, timeout=10) as response:
-                        if response.status == 200:
-                            logger.info(f"Успешный self-ping через прокси {proxy}!")
-                            return # Успех, выходим
-            except Exception:
-                continue # Прокси не сработал, пробуем следующий
-
-    # Если прокси не сработали или их нет, делаем прямой пинг (как запасной вариант)
-    logger.warning("Все прокси не сработали. Выполняю прямой self-ping (может быть проигнорирован Render).")
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=10) as response:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
                 if response.status == 200:
-                    logger.info("Прямой self-ping выполнен успешно.")
+                    logger.debug("Self-ping выполнен успешно.")
+                    return
     except Exception as e:
-        logger.error(f"Ошибка при выполнении прямого self-ping: {e}")
+        logger.warning(f"Self-ping не удался: {e}")

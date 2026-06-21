@@ -37,7 +37,7 @@ class GGSelParser(BaseParser):
                         return parsed_items
                         
                     html = await response.text()
-                    soup = BeautifulSoup(html, "html.parser")
+                    soup = BeautifulSoup(html, "lxml")
                     
                     # Ищем карточки товаров по data-testid или классам
                     cards = soup.select("[data-testid='card'], [data-test='item']")

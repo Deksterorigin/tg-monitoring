@@ -15,17 +15,20 @@ from services.browser import browser_manager
 
 logger = logging.getLogger(__name__)
 
+# Глобальный лок для предотвращения параллельных циклов
+# Если предыдущий цикл ещё не завершился — новый пропускается
+_monitoring_lock = asyncio.Lock()
+
 # Инициализируем парсеры: сначала лёгкие (HTTP), потом тяжёлые (Playwright)
-# Это позволяет минимизировать пиковое потребление памяти
-PARSERS = [
+HTTP_PARSERS = [
     PlatiParser(),     # HTTP-парсер (лёгкий)
     GGSelParser(),     # HTTP-парсер (лёгкий)
-    FunPayParser(),    # Playwright (тяжёлый) — запускается после лёгких
-    PlayerokParser()   # Playwright (тяжёлый) — запускается последним
 ]
 
-# Парсеры, использующие Playwright (используют общий BrowserManager)
-HEAVY_PARSERS = {"FunPay", "Playerok"}
+BROWSER_PARSERS = [
+    FunPayParser(),    # Playwright (тяжёлый)
+    PlayerokParser()   # Playwright (тяжёлый)
+]
 
 # --- Словари для классификации товаров ---
 
@@ -47,19 +50,12 @@ AI_CATEGORIES = {
 }
 
 # Паттерны для определения срока подписки
-# ВАЖНО: порядок имеет значение — более специфичные паттерны проверяются первыми
 DURATION_PATTERNS = [
-    # Годовые
     (r"\b(?:1\s*год|12\s*мес|на\s*год|годов|annual|yearly|1\s*year)", "1 год"),
-    # Полугодовые
     (r"\b(?:6\s*мес|180\s*дн|полгод|6\s*month|half\s*year)", "6 месяцев"),
-    # 3 месяца
     (r"\b(?:3\s*мес|90\s*дн|3\s*month)", "3 месяца"),
-    # 2 месяца
     (r"\b(?:2\s*мес|60\s*дн|2\s*month)", "2 месяца"),
-    # 1 месяц (самый общий — проверяется последним среди месячных)
     (r"\b(?:1\s*мес|мес(?:яц)?(?:\s|$)|30\s*дн|на\s*месяц|monthly|1\s*month)", "1 месяц"),
-    # Недельные
     (r"\b(?:1\s*недел|7\s*дн|на\s*неделю|weekly|1\s*week)", "1 неделя"),
 ]
 
@@ -87,10 +83,8 @@ async def is_dnd_active() -> bool:
         end_minutes = end_h * 60 + end_m
         
         if start_minutes < end_minutes:
-            # Например, с 10:00 до 18:00
             return start_minutes <= current_minutes < end_minutes
         else:
-            # Например, с 23:00 до 08:00 (переход через полночь)
             return current_minutes >= start_minutes or current_minutes < end_minutes
     except Exception as e:
         logger.error(f"Ошибка при проверке активности Тихого часа (DND): {e}", exc_info=True)
@@ -98,17 +92,9 @@ async def is_dnd_active() -> bool:
 
 
 def analyze_item(title: str) -> Tuple[str, str]:
-    """Анализирует название товара и определяет категорию ИИ и срок подписки.
-    
-    Args:
-        title: Название товара.
-    
-    Returns:
-        Кортеж (ai_category, duration), например ("ChatGPT", "1 месяц").
-    """
+    """Анализирует название товара и определяет категорию ИИ и срок подписки."""
     title_lower = title.lower()
     
-    # --- Определяем категорию ИИ ---
     ai_category = "Другое"
     for category, patterns in AI_CATEGORIES.items():
         for pattern in patterns:
@@ -118,7 +104,6 @@ def analyze_item(title: str) -> Tuple[str, str]:
         if ai_category != "Другое":
             break
     
-    # --- Определяем срок подписки ---
     duration = "Без срока"
     for pattern, dur_label in DURATION_PATTERNS:
         if re.search(pattern, title_lower):
@@ -134,7 +119,6 @@ async def send_notification_to_admins(item: ParsedItem, ai_category: str, durati
     
     drop_text = f"\n📉 <b>Внимание, демпинг! Цена упала на {price_drop} $</b>" if price_drop > 0 else ""
 
-    # Форматируем сообщение
     message_text = (
         f"🔔 <b>Лучшая цена в категории!</b>\n{drop_text}\n\n"
         f"🤖 <b>Нейросеть:</b> {ai_category}\n"
@@ -157,19 +141,26 @@ async def send_notification_to_admins(item: ParsedItem, ai_category: str, durati
             logger.error(f"Не удалось отправить уведомление админу {admin_id}: {e}")
 
 async def run_monitoring_cycle():
-    """Один полный цикл мониторинга по всем площадкам и ключевым словам."""
+    """Один полный цикл мониторинга по всем площадкам и ключевым словам.
+    
+    Защищён от параллельного запуска через asyncio.Lock.
+    Если предыдущий цикл ещё работает — новый пропускается.
+    """
+    if _monitoring_lock.locked():
+        logger.warning("Предыдущий цикл мониторинга ещё выполняется. Пропускаем этот запуск.")
+        return
+
+    async with _monitoring_lock:
+        await _run_monitoring_cycle_inner()
+
+
+async def _run_monitoring_cycle_inner():
+    """Внутренняя логика цикла мониторинга."""
     # Проверяем, включен ли мониторинг
     enabled = await db_manager.get_setting("monitoring_enabled", "1")
     if enabled != "1":
         logger.info("Мониторинг приостановлен пользователем.")
         return
-
-    # Запускаем общий браузер для тяжёлых парсеров (один Chromium на весь цикл)
-    try:
-        await browser_manager.start()
-    except Exception as e:
-        logger.error(f"Не удалось запустить BrowserManager: {e}", exc_info=True)
-        # Продолжаем — лёгкие парсеры (HTTP) всё равно отработают
 
     # Загружаем настройки поиска
     try:
@@ -199,61 +190,85 @@ async def run_monitoring_cycle():
 
     logger.info(f"Запуск мониторинга: ключевые слова={keywords}, цена: от {min_price_usd}$ до {max_price_usd}$")
 
-    # Словарь лучших сделок: ключ=(platform, ai_category, duration), значение=ParsedItem
+    # Словарь лучших сделок
     best_deals: Dict[Tuple[str, str, str], ParsedItem] = {}
 
-    # Для каждого ключевого слова запускаем все парсеры
+    def process_items(items: List[ParsedItem]):
+        """Обрабатывает список товаров и обновляет best_deals."""
+        for item in items:
+            if minus_words:
+                title_lower = item.title.lower()
+                if any(mw in title_lower for mw in minus_words):
+                    continue
+            if item.seller_reviews < min_reviews:
+                continue
+            if not (min_price_usd <= item.price_usd <= max_price_usd):
+                continue
+            ai_category, duration = analyze_item(item.title)
+            key = (item.platform, ai_category, duration)
+            if key not in best_deals or item.price_usd < best_deals[key].price_usd:
+                best_deals[key] = item
+
+    # ======= ФАЗА 1: HTTP-парсеры (лёгкие, без Chromium) =======
+    logger.info("--- Фаза 1: HTTP-парсеры (Plati, GGSel) ---")
     for keyword in keywords:
-        for parser in PARSERS:
+        for parser in HTTP_PARSERS:
             try:
-                # Запускаем парсинг
-                items: List[ParsedItem] = await parser.parse(keyword)
-                
-                for item in items:
-                    # Проверка на минус-слова
-                    if minus_words:
-                        title_lower = item.title.lower()
-                        if any(mw in title_lower for mw in minus_words):
-                            continue
-
-                    # Проверяем количество отзывов
-                    if item.seller_reviews < min_reviews:
-                        continue
-
-                    # Проверяем ценовой диапазон
-                    if not (min_price_usd <= item.price_usd <= max_price_usd):
-                        continue
-
-                    # Классифицируем товар
-                    ai_category, duration = analyze_item(item.title)
-                    key = (item.platform, ai_category, duration)
-
-                    # Сохраняем только самый дешёвый товар в каждой группе
-                    if key not in best_deals or item.price_usd < best_deals[key].price_usd:
-                        best_deals[key] = item
-
+                items = await parser.parse(keyword)
+                process_items(items)
+                del items
             except Exception as e:
                 logger.error(f"Ошибка парсера {parser.platform_name} по запросу '{keyword}': {e}", exc_info=True)
-            
-            # Пауза между запросами к разным парсерам для снижения нагрузки
+            await asyncio.sleep(1)
+        await asyncio.sleep(1)
+
+    # Принудительная сборка мусора перед запуском тяжёлых парсеров
+    gc.collect()
+
+    # ======= ФАЗА 2: Playwright-парсеры (тяжёлые, с Chromium) =======
+    logger.info("--- Фаза 2: Playwright-парсеры (FunPay, Playerok) ---")
+    try:
+        await browser_manager.start()
+    except Exception as e:
+        logger.error(f"Не удалось запустить BrowserManager: {e}", exc_info=True)
+        # Без Chromium — браузерные парсеры пропускаются
+        logger.warning("Браузерные парсеры пропущены из-за ошибки запуска Chromium.")
+        await browser_manager.shutdown()
+        gc.collect()
+        # Продолжаем с тем, что собрали HTTP-парсерами
+        await _finalize_cycle(best_deals)
+        return
+
+    for keyword in keywords:
+        for parser in BROWSER_PARSERS:
+            try:
+                items = await parser.parse(keyword)
+                process_items(items)
+                del items
+            except Exception as e:
+                logger.error(f"Ошибка парсера {parser.platform_name} по запросу '{keyword}': {e}", exc_info=True)
             await asyncio.sleep(2)
-        
         await asyncio.sleep(2)
 
-    # Останавливаем общий браузер и освобождаем всю память Chromium
+    # Останавливаем Chromium и освобождаем всю память
     await browser_manager.shutdown()
+    gc.collect()
 
+    await _finalize_cycle(best_deals)
+
+
+async def _finalize_cycle(best_deals: Dict[Tuple[str, str, str], ParsedItem]):
+    """Финализация цикла: сравнение с предыдущим снэпшотом, уведомления, сохранение."""
     # Извлекаем предыдущий срез для аналитики падения цен
-    import json
     previous_snapshot_str = await db_manager.get_setting("previous_snapshot", "[]")
     try:
         prev_data = json.loads(previous_snapshot_str)
-        # Создаем словарь для быстрого поиска: (ai_category, duration) -> min_price_usd
         prev_prices = {}
         for item in prev_data:
             key = (item["ai_category"], item["duration"])
             if key not in prev_prices or item["price_usd"] < prev_prices[key]:
                 prev_prices[key] = item["price_usd"]
+        del prev_data  # Освобождаем память
     except Exception:
         prev_prices = {}
 
@@ -266,7 +281,6 @@ async def run_monitoring_cycle():
         if key in prev_prices and item.price_usd < prev_prices[key]:
             price_drop = round(prev_prices[key] - item.price_usd, 2)
 
-        # Добавляем в снимок
         snapshot.append({
             "ai_category": ai_category,
             "duration": duration,
@@ -283,7 +297,6 @@ async def run_monitoring_cycle():
                 if not seen:
                     await db_manager.add_seen_item(item.id)
                 
-                # Проверяем Тихий час перед отправкой
                 dnd_active = await is_dnd_active()
                 if not dnd_active:
                     await send_notification_to_admins(item, ai_category, duration, price_drop)
@@ -301,6 +314,9 @@ async def run_monitoring_cycle():
         logger.info("Срез лучших цен успешно сохранен в БД.")
     except Exception as e:
         logger.error(f"Ошибка при сохранении среза цен: {e}")
+
+    # Периодическая очистка старых seen_items
+    await db_manager.cleanup_seen_items(days=7)
 
     logger.info(f"Цикл мониторинга завершён. Лучших сделок: {len(best_deals)}, отправлено: {sent_count}.")
 
@@ -325,7 +341,6 @@ def toggle_monitoring_job(enabled: bool):
     
     job = scheduler.get_job("monitoring_job")
     if not job:
-        # Если задачи нет, создаем её с интервалом из БД
         return
         
     if enabled:
@@ -333,7 +348,6 @@ def toggle_monitoring_job(enabled: bool):
             scheduler.resume_job("monitoring_job")
             logger.info("Задача мониторинга возобновлена в планировщике.")
         except Exception:
-            # Если не получается возобновить (например, не была запущена), ничего страшного
             pass
     else:
         try:
@@ -341,4 +355,3 @@ def toggle_monitoring_job(enabled: bool):
             logger.info("Задача мониторинга приостановлена в планировщике.")
         except Exception:
             pass
-

@@ -7,7 +7,9 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    NODE_OPTIONS="--max-old-space-size=64"
+    NODE_OPTIONS="--max-old-space-size=48" \
+    MALLOC_ARENA_MAX=2 \
+    PYTHONMALLOC=malloc
 
 # Устанавливаем минимальные системные зависимости для Chromium
 RUN apt-get update && apt-get install -y --no-install-recommends \

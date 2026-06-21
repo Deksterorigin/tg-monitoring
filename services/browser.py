@@ -60,9 +60,10 @@ CHROMIUM_ARGS = [
     "--no-default-browser-check",
     "--no-pings",
     "--disable-webgl",
-    "--js-flags=--max-old-space-size=64",
+    "--js-flags=--max-old-space-size=48",
     "--renderer-process-limit=1",
     "--disable-field-trial-config",
+    "--single-process",
 ]
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -160,6 +161,13 @@ class BrowserManager:
 
         gc.collect()
         logger.info("[BrowserManager] Chromium полностью остановлен, gc.collect() выполнен.")
+
+        # Убиваем зомби-процессы Chromium (если остались после таймаута)
+        try:
+            import subprocess
+            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, timeout=3)
+        except Exception:
+            pass  # На Windows pkill не существует, игнорируем
 
     @property
     def is_running(self) -> bool:
