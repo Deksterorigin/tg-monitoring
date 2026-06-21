@@ -22,7 +22,16 @@ class BaseParser(ABC):
         self.platform_name = platform_name
 
     async def get_route_proxy(self) -> Optional[str]:
-        """Возвращает случайный рабочий прокси из базы данных в формате для запросов."""
+        """Возвращает случайный рабочий прокси из пула или базы данных в формате для запросов."""
+        try:
+            from services.proxy_pool import proxy_pool
+            proxy_raw = proxy_pool.get_random_proxy()
+            if proxy_raw:
+                return parse_proxy_string(proxy_raw)
+        except Exception as e:
+            logger.error(f"Ошибка получения прокси из пула: {e}")
+
+        # Фолбэк на прокси из базы данных
         active_proxies = await db_manager.get_active_proxies()
         if not active_proxies:
             return None

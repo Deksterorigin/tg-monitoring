@@ -73,8 +73,10 @@ def get_interval_keyboard() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_proxies_keyboard() -> InlineKeyboardMarkup:
+def get_proxies_keyboard(auto_proxies_enabled: bool) -> InlineKeyboardMarkup:
+    toggle_text = "🌐 Авто-прокси (GitHub): Вкл" if auto_proxies_enabled else "🌐 Авто-прокси (GitHub): Выкл"
     buttons = [
+        [InlineKeyboardButton(text=toggle_text, callback_data="toggle_auto_proxies")],
         [InlineKeyboardButton(text="➕ Добавить прокси", callback_data="add_proxy_prompt")],
         [InlineKeyboardButton(text="🔄 Проверить прокси", callback_data="check_proxies")],
         [InlineKeyboardButton(text="❌ Удалить мертвые прокси", callback_data="delete_dead_proxies")],

@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from config import settings
+from database import db_manager
 from bot.keyboards.inline import get_backup_keyboard, get_back_keyboard, get_main_menu_keyboard
 from bot.filters.admin_filter import IsAdminFilter
 
@@ -138,7 +139,19 @@ async def process_db_restore(message: Message, state: FSMContext):
     # 4. Перезапись оригинального файла БД
     db_file_path = settings.DATABASE_PATH
     try:
-        # Пытаемся заменить файл
+        # Закрываем активное соединение к БД перед заменой файла
+        await db_manager.close()
+        
+        # Удаляем временные файлы WAL/SHM текущей БД, чтобы они не конфликтовали с новым файлом бэкапа
+        for suffix in ["-wal", "-shm"]:
+            wal_file = db_file_path + suffix
+            if os.path.exists(wal_file):
+                try:
+                    os.remove(wal_file)
+                except Exception as ex:
+                    logger.warning(f"Не удалось удалить временный файл SQLite {wal_file}: {ex}")
+
+        # Заменяем файл БД
         shutil.move(temp_path, db_file_path)
         await state.clear()
         
@@ -146,7 +159,7 @@ async def process_db_restore(message: Message, state: FSMContext):
             "✅ <b>Резервная копия успешно восстановлена!</b>\n\n"
             "Все настройки, список администраторов и прокси успешно применены.",
             parse_mode="HTML",
-            reply_markup=get_main_menu_keyboard(monitoring_enabled=True) # Показываем меню с кнопками
+            reply_markup=get_main_menu_keyboard(monitoring_enabled=True)
         )
     except Exception as e:
         if os.path.exists(temp_path):

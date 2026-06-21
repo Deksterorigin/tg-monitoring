@@ -80,7 +80,8 @@ class DatabaseManager:
             "monitoring_enabled": "1",
             "dnd_enabled": "0",
             "dnd_start": "23:00",
-            "dnd_end": "08:00"
+            "dnd_end": "08:00",
+            "use_free_proxies": "1"
         }
 
         async with self._lock:

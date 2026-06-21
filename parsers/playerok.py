@@ -19,10 +19,17 @@ class PlayerokParser(BaseParser):
         logger.info(f"[{self.platform_name}] Начало парсинга по запросу: {keyword}")
         parsed_items: List[ParsedItem] = []
 
+        # Получаем и парсим прокси для Playwright
+        proxy_str = await self.get_route_proxy()
+        proxy_dict = None
+        if proxy_str:
+            from services.proxy_checker import parse_proxy_to_playwright
+            proxy_dict = parse_proxy_to_playwright(proxy_str)
+
         context = None
         page = None
         try:
-            context, page = await browser_manager.get_page()
+            context, page = await browser_manager.get_page(proxy=proxy_dict)
 
             # Шаг 1. Переходим на главную страницу Playerok
             logger.info(f"[{self.platform_name}] Открытие главной страницы")

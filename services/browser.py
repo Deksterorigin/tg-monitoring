@@ -113,16 +113,20 @@ class BrowserManager:
         )
         logger.info("[BrowserManager] Chromium запущен.")
 
-    async def get_page(self) -> tuple[BrowserContext, Page]:
-        """Создаёт новый контекст и страницу с блокировкой ресурсов."""
+    async def get_page(self, proxy: Optional[dict] = None) -> tuple[BrowserContext, Page]:
+        """Создаёт новый контекст и страницу с блокировкой ресурсов и опциональным прокси."""
         if not self._browser or not self._browser.is_connected():
             raise RuntimeError("BrowserManager: браузер не запущен. Вызовите start() сначала.")
 
-        context = await self._browser.new_context(
-            user_agent=USER_AGENT,
-            viewport={"width": 800, "height": 600},
-            java_script_enabled=True,
-        )
+        context_args = {
+            "user_agent": USER_AGENT,
+            "viewport": {"width": 800, "height": 600},
+            "java_script_enabled": True,
+        }
+        if proxy:
+            context_args["proxy"] = proxy
+
+        context = await self._browser.new_context(**context_args)
         page = await context.new_page()
         await page.route("**/*", _block_resources)
         return context, page

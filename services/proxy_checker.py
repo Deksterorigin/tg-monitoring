@@ -58,3 +58,40 @@ class ProxyChecker:
             logger.warning(f"Прокси {proxy_raw} не прошел проверку: {e}")
             
         return False
+
+def parse_proxy_to_playwright(proxy_url: str) -> Optional[dict]:
+    """
+    Конвертирует строку прокси (aiohttp формат или сырой) в формат для Playwright:
+    {"server": "http://ip:port", "username": "...", "password": "..."}
+    """
+    if not proxy_url:
+        return None
+
+    if proxy_url.startswith("http://") or proxy_url.startswith("https://"):
+        from urllib.parse import urlparse
+        parsed = urlparse(proxy_url)
+        # Обрабатываем hostname и scheme
+        scheme = parsed.scheme or "http"
+        hostname = parsed.hostname or ""
+        server = f"{scheme}://{hostname}"
+        if parsed.port:
+            server += f":{parsed.port}"
+        
+        res = {"server": server}
+        if parsed.username:
+            res["username"] = parsed.username
+        if parsed.password:
+            res["password"] = parsed.password
+        return res
+
+    parts = proxy_url.split(":")
+    if len(parts) == 2:
+        return {"server": f"http://{parts[0]}:{parts[1]}"}
+    elif len(parts) == 4:
+        ip, port, user, password = parts
+        return {
+            "server": f"http://{ip}:{port}",
+            "username": user,
+            "password": password
+        }
+    return {"server": f"http://{proxy_url}"}

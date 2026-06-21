@@ -162,6 +162,13 @@ async def _run_monitoring_cycle_inner():
         logger.info("Мониторинг приостановлен пользователем.")
         return
 
+    # Обновляем пул бесплатных прокси перед парсингом
+    try:
+        from services.proxy_pool import proxy_pool
+        await proxy_pool.refresh()
+    except Exception as e:
+        logger.error(f"Не удалось обновить пул прокси: {e}", exc_info=True)
+
     # Загружаем настройки поиска
     try:
         min_price_usd = float(await db_manager.get_setting("min_price_usd", "0.0"))

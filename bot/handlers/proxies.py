@@ -37,6 +37,7 @@ async def get_proxy_list_text() -> str:
 async def show_proxies_menu(callback: CallbackQuery):
     """Показывает меню управления прокси."""
     list_text = await get_proxy_list_text()
+    auto_proxies_enabled = await db_manager.get_setting("use_free_proxies", "1") == "1"
     
     text = (
         f"{list_text}\n"
@@ -44,8 +45,16 @@ async def show_proxies_menu(callback: CallbackQuery):
         f"<code>IP:PORT</code> или <code>IP:PORT:USER:PASS</code>\n"
         f"Каждый прокси с новой строки."
     )
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_proxies_keyboard())
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_proxies_keyboard(auto_proxies_enabled))
     await callback.answer()
+
+@router.callback_query(F.data == "toggle_auto_proxies")
+async def toggle_auto_proxies(callback: CallbackQuery):
+    """Переключает использование бесплатных авто-прокси с GitHub."""
+    current = await db_manager.get_setting("use_free_proxies", "1")
+    new_val = "0" if current == "1" else "1"
+    await db_manager.set_setting("use_free_proxies", new_val)
+    await show_proxies_menu(callback)
 
 @router.callback_query(F.data == "add_proxy_prompt")
 async def add_proxy_prompt(callback: CallbackQuery, state: FSMContext):
