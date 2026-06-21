@@ -18,8 +18,20 @@ class DatabaseManager:
         if not hasattr(self, 'initialized'):
             self.db_path = db_path
             self._conn: Optional[aiosqlite.Connection] = None
-            self._lock = asyncio.Lock()
             self.initialized = True
+
+    @property
+    def _lock(self) -> asyncio.Lock:
+        """Ленивая инициализация лока, привязанная к текущему running loop."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if not hasattr(self, '_lazy_lock') or self._lazy_lock is None or (loop and getattr(self, '_lazy_lock_loop', None) != loop):
+            self._lazy_lock = asyncio.Lock()
+            self._lazy_lock_loop = loop
+        return self._lazy_lock
 
     async def _get_conn(self) -> aiosqlite.Connection:
         """Возвращает персистентное соединение с БД (создаёт при первом вызове)."""
@@ -31,10 +43,31 @@ class DatabaseManager:
         return self._conn
 
     async def close(self):
-        """Закрывает персистентное соединение."""
+        """Закрывает персистентное соединение и освобождает файловые дескрипторы."""
         if self._conn:
-            await self._conn.close()
+            try:
+                await self._conn.close()
+            except Exception as e:
+                logger.warning(f"Ошибка при закрытии соединения aiosqlite: {e}")
+            finally:
+                self._conn = None
+        import gc
+        gc.collect()
+
+    async def reconnect(self):
+        """Принудительно закрывает старое и инициализирует новое соединение с БД (с блокировкой)."""
+        async with self._lock:
+            await self._reconnect_unlocked()
+
+    async def _reconnect_unlocked(self):
+        """Внутренний метод переподключения без захвата блокировки (используется при восстановлении БД)."""
+        if self._conn:
+            try:
+                await self._conn.close()
+            except Exception:
+                pass
             self._conn = None
+        await self._get_conn()
 
     async def init_db(self):
         """Инициализация базы данных SQLite и создание таблиц."""

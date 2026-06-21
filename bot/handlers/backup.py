@@ -47,12 +47,21 @@ async def download_db(callback: CallbackQuery):
         return
 
     try:
-        document = FSInputFile(db_file_path, filename="bot_database.db")
+        temp_backup_path = "bot_database_backup_download.db"
+        # Копируем файл под локом базы данных, чтобы получить согласованную копию
+        async with db_manager._lock:
+            shutil.copy2(db_file_path, temp_backup_path)
+
+        document = FSInputFile(temp_backup_path, filename="bot_database.db")
         await callback.message.answer_document(
             document=document, 
             caption="💾 Резервная копия базы данных SQLite.\nСохраните этот файл для восстановления."
         )
         await callback.answer("База данных успешно выгружена")
+        
+        # Удаляем временную копию после отправки
+        if os.path.exists(temp_backup_path):
+            os.remove(temp_backup_path)
     except Exception as e:
         logger.error(f"Ошибка при выгрузке БД: {e}")
         await callback.message.answer(f"❌ Ошибка при отправке файла: {e}")
@@ -138,23 +147,60 @@ async def process_db_restore(message: Message, state: FSMContext):
 
     # 4. Перезапись оригинального файла БД
     db_file_path = settings.DATABASE_PATH
+    backup_file_path = db_file_path + ".backup"
+    
     try:
-        # Закрываем активное соединение к БД перед заменой файла
-        await db_manager.close()
-        
-        # Удаляем временные файлы WAL/SHM текущей БД, чтобы они не конфликтовали с новым файлом бэкапа
-        for suffix in ["-wal", "-shm"]:
-            wal_file = db_file_path + suffix
-            if os.path.exists(wal_file):
-                try:
-                    os.remove(wal_file)
-                except Exception as ex:
-                    logger.warning(f"Не удалось удалить временный файл SQLite {wal_file}: {ex}")
+        # Приобретаем блокировку и закрываем соединение, чтобы заблокировать конкурентные запросы
+        async with db_manager._lock:
+            await db_manager.close()
+            
+            # Удаляем временные файлы WAL/SHM текущей БД перед бэкапом/заменой
+            for suffix in ["-wal", "-shm"]:
+                wal_file = db_file_path + suffix
+                if os.path.exists(wal_file):
+                    try:
+                        os.remove(wal_file)
+                    except Exception as ex:
+                        logger.warning(f"Не удалось удалить временный файл SQLite {wal_file}: {ex}")
 
-        # Заменяем файл БД
-        shutil.move(temp_path, db_file_path)
+            # Создаем резервную копию текущей БД (если она существует)
+            if os.path.exists(db_file_path):
+                shutil.copy2(db_file_path, backup_file_path)
+
+            try:
+                # Перемещаем бэкап на место основной БД
+                if os.path.exists(db_file_path):
+                    os.remove(db_file_path)
+                shutil.move(temp_path, db_file_path)
+
+                # Проверяем целостность новой БД
+                conn = sqlite3.connect(db_file_path)
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA integrity_check;")
+                integrity = cursor.fetchone()
+                conn.close()
+
+                if not integrity or integrity[0] != "ok":
+                    raise ValueError("Файл восстановленной базы поврежден (integrity check failed).")
+
+                # Успешно! Удаляем бэкап и переподключаемся
+                if os.path.exists(backup_file_path):
+                    os.remove(backup_file_path)
+                await db_manager._reconnect_unlocked()
+            except Exception as restore_err:
+                logger.error(f"Сбой при восстановлении бэкапа, откат назад: {restore_err}")
+                # Откат к исходной БД
+                if os.path.exists(backup_file_path):
+                    if os.path.exists(db_file_path):
+                        try:
+                            os.remove(db_file_path)
+                        except Exception:
+                            pass
+                    shutil.move(backup_file_path, db_file_path)
+                await db_manager._reconnect_unlocked()
+                raise restore_err
+
         await state.clear()
-        
         await message.answer(
             "✅ <b>Резервная копия успешно восстановлена!</b>\n\n"
             "Все настройки, список администраторов и прокси успешно применены.",
@@ -163,7 +209,10 @@ async def process_db_restore(message: Message, state: FSMContext):
         )
     except Exception as e:
         if os.path.exists(temp_path):
-            os.remove(temp_path)
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
         logger.error(f"Ошибка при перезаписи файла БД: {e}")
         await message.answer(
             f"❌ Ошибка при перезаписи файла базы данных на сервере: {e}\n"

@@ -13,9 +13,6 @@ class PlatiParser(BaseParser):
         logger.info(f"[{self.platform_name}] Начало парсинга по запросу: {keyword}")
         parsed_items: List[ParsedItem] = []
         
-        # Получаем прокси
-        proxy = await self.get_route_proxy()
-        
         # Plati.Market предоставляет публичный API для поиска
         url = f"https://plati.io/api/search.ashx?query={keyword}&response=json"
         
@@ -26,44 +23,45 @@ class PlatiParser(BaseParser):
         try:
             timeout = aiohttp.ClientTimeout(total=20)
             async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
-                async with session.get(url, proxy=proxy) as response:
-                    if response.status != 200:
-                        logger.warning(f"[{self.platform_name}] Ошибка запроса к API Plati: {response.status}")
-                        return parsed_items
+                import json
+                text = await self.request_with_retry(session, url, headers)
+                if not text:
+                    logger.warning(f"[{self.platform_name}] Не удалось получить данные по запросу '{keyword}'.")
+                    return parsed_items
+                
+                data = json.loads(text)
+                
+                # Структура ответа API Plati содержит поле "items" со списком товаров
+                rows = data.get("items", [])
+                logger.info(f"[{self.platform_name}] API вернуло {len(rows)} товаров.")
+                
+                for row in rows:
+                    try:
+                        item_id = str(row.get("id"))
+                        title = row.get("name", "")
                         
-                    data = await response.json(content_type=None)
-                    
-                    # Структура ответа API Plati содержит поле "items" со списком товаров
-                    rows = data.get("items", [])
-                    logger.info(f"[{self.platform_name}] API вернуло {len(rows)} товаров.")
-                    
-                    for row in rows:
-                        try:
-                            item_id = str(row.get("id"))
-                            title = row.get("name", "")
-                            
-                            # Проверяем ключевое слово в названии
-                            if keyword.lower() not in title.lower():
-                                continue
-                                
-                            # Цены
-                            price_usd = float(row.get("price_usd", 0.0))
-                            price_rub = float(row.get("price_rur", 0.0))
-                            
-                            # URL товара
-                            item_url = f"https://plati.market/itm/{item_id}"
-                            
-                            parsed_items.append(ParsedItem(
-                                id=f"plati_{item_id}",
-                                title=title,
-                                price_rub=price_rub,
-                                price_usd=price_usd,
-                                url=item_url,
-                                platform=self.platform_name
-                            ))
-                        except Exception as row_err:
-                            logger.error(f"[{self.platform_name}] Ошибка обработки строки товара: {row_err}")
+                        # Проверяем ключевое слово в названии
+                        if keyword.lower() not in title.lower():
                             continue
+                            
+                        # Цены
+                        price_usd = float(row.get("price_usd", 0.0))
+                        price_rub = float(row.get("price_rur", 0.0))
+                        
+                        # URL товара
+                        item_url = f"https://plati.market/itm/{item_id}"
+                        
+                        parsed_items.append(ParsedItem(
+                            id=f"plati_{item_id}",
+                            title=title,
+                            price_rub=price_rub,
+                            price_usd=price_usd,
+                            url=item_url,
+                            platform=self.platform_name
+                        ))
+                    except Exception as row_err:
+                        logger.error(f"[{self.platform_name}] Ошибка обработки строки товара: {row_err}")
+                        continue
         except Exception as e:
             logger.error(f"[{self.platform_name}] Ошибка при запросе к Plati.Market: {e}")
             

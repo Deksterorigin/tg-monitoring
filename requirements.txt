@@ -17,6 +17,7 @@ lxml==5.4.0
 magic-filter==1.0.12
 multidict==6.7.1
 playwright==1.60.0
+playwright-stealth==2.0.3
 propcache==0.4.1
 pydantic==2.11.10
 pydantic-settings==2.11.0

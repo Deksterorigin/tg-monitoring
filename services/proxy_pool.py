@@ -69,18 +69,28 @@ class ProxyPool:
             logger.warning("[ProxyPool] Нет кандидатов для проверки.")
             return
 
-        # 3. Оптимизируем проверку: перемешиваем и ограничиваем список до 30 кандидатов.
-        # Этого достаточно, чтобы найти 3-5 работающих прокси за минимальное время и память.
+        # 3. Запуск верификации порциями по 30 кандидатов для экономии памяти и времени
         candidate_list = list(candidates)
         random.shuffle(candidate_list)
-        candidate_list = candidate_list[:30]
 
-        logger.info(f"[ProxyPool] Запуск проверки {len(candidate_list)} отобранных кандидатов...")
+        logger.info(f"[ProxyPool] Запуск проверки кандидатов (всего найдено: {len(candidate_list)})...")
 
-        # Запускаем проверку с лимитом 5 рабочих прокси и 5 одновременных соединений
-        working = await self._find_working_proxies(candidate_list, limit=5, max_concurrent=5)
+        working = []
+        chunk_size = 30
+        limit = 5
+
+        for i in range(0, len(candidate_list), chunk_size):
+            chunk = candidate_list[i : i + chunk_size]
+            needed = limit - len(working)
+            logger.info(f"[ProxyPool] Проверка пачки кандидатов {i + 1} - {i + len(chunk)} (нужно еще {needed})...")
+            
+            chunk_working = await self._find_working_proxies(chunk, limit=needed, max_concurrent=5)
+            working.extend(chunk_working)
+            
+            if len(working) >= limit:
+                break
+
         self.working_proxies = working
-
         logger.info(f"[ProxyPool] Пул успешно обновлен. Найдено рабочих прокси: {len(self.working_proxies)}")
 
     async def _find_working_proxies(self, candidates: List[str], limit: int = 5, max_concurrent: int = 5) -> List[str]:
@@ -126,7 +136,7 @@ class ProxyPool:
 
     async def _check_proxy_task(self, proxy: str, semaphore: asyncio.Semaphore, session: aiohttp.ClientSession, results_queue: asyncio.Queue):
         """
-        Фоновая задача проверки отдельного прокси.
+        Фоновая задача проверки отдельного прокси на доступность к plati.io.
         """
         async with semaphore:
             try:
@@ -134,12 +144,13 @@ class ProxyPool:
                 if not proxy_url:
                     return
 
-                # Быстрый и легкий запрос к ipify.org без проверки SSL
-                async with session.get("https://api.ipify.org?format=json", proxy=proxy_url, ssl=False) as response:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+                # Делаем легкий GET-запрос на plati.io без проверки SSL
+                async with session.get("https://plati.io/", proxy=proxy_url, headers=headers, ssl=False) as response:
                     if response.status == 200:
-                        data = await response.json()
-                        if data.get("ip"):
-                            await results_queue.put(proxy)
+                        await results_queue.put(proxy)
             except Exception:
                 pass
 

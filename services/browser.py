@@ -128,6 +128,11 @@ class BrowserManager:
 
         context = await self._browser.new_context(**context_args)
         page = await context.new_page()
+        try:
+            from playwright_stealth import Stealth
+            await Stealth().apply_stealth_async(page)
+        except Exception as e:
+            logger.warning(f"[BrowserManager] Ошибка применения stealth: {e}")
         await page.route("**/*", _block_resources)
         return context, page
 

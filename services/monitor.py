@@ -162,12 +162,18 @@ async def _run_monitoring_cycle_inner():
         logger.info("Мониторинг приостановлен пользователем.")
         return
 
-    # Обновляем пул бесплатных прокси перед парсингом
-    try:
-        from services.proxy_pool import proxy_pool
-        await proxy_pool.refresh()
-    except Exception as e:
-        logger.error(f"Не удалось обновить пул прокси: {e}", exc_info=True)
+    # Обновляем пул бесплатных прокси перед парсингом (если они включены)
+    use_free = await db_manager.get_setting("use_free_proxies", "1")
+    if use_free == "1":
+        try:
+            from services.proxy_pool import proxy_pool
+            await proxy_pool.refresh()
+            if not proxy_pool.working_proxies:
+                logger.warning("[Monitor] Бесплатные прокси включены, но в пуле нет ни одного рабочего прокси. Пропускаем этот цикл парсинга для предотвращения бана сервера.")
+                return
+        except Exception as e:
+            logger.error(f"[Monitor] Не удалось обновить пул прокси: {e}", exc_info=True)
+            return
 
     # Загружаем настройки поиска
     try:
