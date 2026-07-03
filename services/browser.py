@@ -60,10 +60,9 @@ CHROMIUM_ARGS = [
     "--no-default-browser-check",
     "--no-pings",
     "--disable-webgl",
-    "--js-flags=--max-old-space-size=48",
+    "--js-flags=--max-old-space-size=256",
     "--renderer-process-limit=1",
     "--disable-field-trial-config",
-    "--single-process",
 ]
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -105,6 +104,13 @@ class BrowserManager:
             return
 
         logger.info("[BrowserManager] Запуск Playwright и Chromium...")
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except Exception:
+                pass
+            self._playwright = None
+
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(
             headless=True,
@@ -116,7 +122,8 @@ class BrowserManager:
     async def get_page(self, proxy: Optional[dict] = None) -> tuple[BrowserContext, Page]:
         """Создаёт новый контекст и страницу с блокировкой ресурсов и опциональным прокси."""
         if not self._browser or not self._browser.is_connected():
-            raise RuntimeError("BrowserManager: браузер не запущен. Вызовите start() сначала.")
+            logger.info("[BrowserManager] Браузер закрыт или упал. Запускаем заново...")
+            await self.start()
 
         context_args = {
             "user_agent": USER_AGENT,
