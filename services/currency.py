@@ -31,7 +31,7 @@ class CurrencyService:
         url = "https://www.cbr.ru/scripts/XML_daily.asp"
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=10) as response:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         xml_data = await response.text(encoding='windows-1251')
                         root = ET.fromstring(xml_data)
@@ -49,12 +49,12 @@ class CurrencyService:
                                     if value_node is not None and value_node.text:
                                         eur_val = float(value_node.text.replace(',', '.'))
                         
-                        if usd_val:
+                        if usd_val is not None:
                             self.rub_to_usd_rate = 1.0 / usd_val
-                        if eur_val:
+                        if eur_val is not None:
                             self.eur_to_rub_rate = eur_val
                         
-                        if usd_val or eur_val:
+                        if usd_val is not None or eur_val is not None:
                             self.last_updated = now
                             logger.info(
                                 f"Курсы валют обновлены. 1 USD = {usd_val or 'N/A'} RUB, 1 EUR = {eur_val or 'N/A'} RUB"
@@ -75,5 +75,11 @@ class CurrencyService:
     async def convert_eur_to_rub(self, eur_amount: float) -> float:
         await self.update_rates()
         return eur_amount * self.eur_to_rub_rate
+
+    async def convert_usd_to_rub(self, usd_amount: float) -> float:
+        await self.update_rates()
+        if self.rub_to_usd_rate > 0:
+            return usd_amount / self.rub_to_usd_rate
+        return usd_amount * 90.0  # fallback
 
 currency_service = CurrencyService()

@@ -201,11 +201,12 @@ async def process_db_restore(message: Message, state: FSMContext):
                 raise restore_err
 
         await state.clear()
+        monitoring_enabled = (await db_manager.get_setting("monitoring_enabled", "1")) == "1"
         await message.answer(
             "✅ <b>Резервная копия успешно восстановлена!</b>\n\n"
             "Все настройки, список администраторов и прокси успешно применены.",
             parse_mode="HTML",
-            reply_markup=get_main_menu_keyboard(monitoring_enabled=True)
+            reply_markup=get_main_menu_keyboard(monitoring_enabled=monitoring_enabled)
         )
     except Exception as e:
         if os.path.exists(temp_path):

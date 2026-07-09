@@ -20,8 +20,10 @@ class SettingsStates(StatesGroup):
     waiting_for_dnd_end = State()
 
 @router.callback_query(F.data == "menu_settings")
-async def show_settings_menu(callback: CallbackQuery):
+async def show_settings_menu(callback: CallbackQuery, state: FSMContext = None):
     """Показывает меню настроек поиска."""
+    if state:
+        await state.clear()
     min_price = await db_manager.get_setting("min_price_usd", "0.0")
     max_price = await db_manager.get_setting("max_price_usd", "10.0")
     min_reviews = await db_manager.get_setting("min_reviews", "10")
@@ -57,6 +59,12 @@ async def set_min_price_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(SettingsStates.waiting_for_min_price)
 async def process_min_price(message: Message, state: FSMContext):
     """Сохранение новой минимальной цены."""
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение с минимальной ценой.",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+        return
     text = message.text.replace(",", ".").strip()
     try:
         price = float(text)
@@ -94,6 +102,12 @@ async def set_max_price_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(SettingsStates.waiting_for_price)
 async def process_max_price(message: Message, state: FSMContext):
     """Сохранение новой максимальной цены."""
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение с максимальной ценой.",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+        return
     text = message.text.replace(",", ".").strip()
     try:
         price = float(text)
@@ -132,6 +146,12 @@ async def set_min_reviews_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(SettingsStates.waiting_for_min_reviews)
 async def process_min_reviews(message: Message, state: FSMContext):
     """Сохранение минимального количества отзывов."""
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение с количеством отзывов.",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+        return
     text = message.text.strip()
     try:
         reviews = int(text)
@@ -171,6 +191,12 @@ async def set_keywords_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(SettingsStates.waiting_for_keywords)
 async def process_keywords(message: Message, state: FSMContext):
     """Сохранение новых ключевых слов."""
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение с ключевыми словами.",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+        return
     keywords_raw = message.text.strip()
     # Чистим пробелы вокруг слов
     keywords = ",".join([k.strip() for k in keywords_raw.split(",") if k.strip()])
@@ -211,6 +237,12 @@ async def set_minus_words_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(SettingsStates.waiting_for_minus_words)
 async def process_minus_words(message: Message, state: FSMContext):
     """Сохранение новых минус-слов."""
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение с минус-словами.",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+        return
     raw_text = message.text.strip()
     
     if raw_text in ["0", "-"]:
@@ -233,8 +265,10 @@ from bot.keyboards.inline import get_dnd_keyboard
 import re
 
 @router.callback_query(F.data == "menu_dnd")
-async def show_dnd_menu(callback: CallbackQuery):
+async def show_dnd_menu(callback: CallbackQuery, state: FSMContext = None):
     """Показывает меню настроек Тихого часа."""
+    if state:
+        await state.clear()
     dnd_enabled = await db_manager.get_setting("dnd_enabled", "0") == "1"
     dnd_start = await db_manager.get_setting("dnd_start", "23:00")
     dnd_end = await db_manager.get_setting("dnd_end", "08:00")
@@ -276,6 +310,12 @@ async def set_dnd_start_prompt(callback: CallbackQuery, state: FSMContext):
 
 @router.message(SettingsStates.waiting_for_dnd_start)
 async def process_dnd_start(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение с временем начала Тихого часа.",
+            reply_markup=get_back_keyboard("menu_dnd")
+        )
+        return
     text = message.text.strip()
     if not re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", text):
         await message.answer(
@@ -307,6 +347,12 @@ async def set_dnd_end_prompt(callback: CallbackQuery, state: FSMContext):
 
 @router.message(SettingsStates.waiting_for_dnd_end)
 async def process_dnd_end(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение с временем окончания Тихого часа.",
+            reply_markup=get_back_keyboard("menu_dnd")
+        )
+        return
     text = message.text.strip()
     if not re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", text):
         await message.answer(

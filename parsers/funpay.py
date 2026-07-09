@@ -25,9 +25,8 @@ class FunPayParser(BaseParser):
             return parsed_items
 
         try:
-            # Шаг 1. Переходим на главную страницу FunPay
-            logger.info(f"[{self.platform_name}] Открытие главной страницы")
-            await page.goto("https://funpay.com/", timeout=30000, wait_until="domcontentloaded")
+            # Шаг 1. Главная страница уже загружена через get_working_browser_page
+            logger.info(f"[{self.platform_name}] Главная страница уже загружена")
 
             # Шаг 2. Вводим ключевое слово в форму поиска
             logger.info(f"[{self.platform_name}] Ввод ключевого слова '{keyword}'")
@@ -105,7 +104,7 @@ class FunPayParser(BaseParser):
                             # Конвертация валют
                             if "$" in price_text or "usd" in price_text.lower():
                                 price_usd = price_val
-                                price_rub = price_usd * 90.0
+                                price_rub = await currency_service.convert_usd_to_rub(price_usd)
                             elif "€" in price_text or "eur" in price_text.lower():
                                 price_usd = await currency_service.convert_eur_to_usd(price_val)
                                 price_rub = await currency_service.convert_eur_to_rub(price_val)

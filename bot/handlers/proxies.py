@@ -72,6 +72,12 @@ async def add_proxy_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(ProxyStates.waiting_for_proxies)
 async def process_add_proxies(message: Message, state: FSMContext):
     """Добавление прокси в БД."""
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение со списком прокси.",
+            reply_markup=get_back_keyboard("menu_proxies")
+        )
+        return
     lines = message.text.strip().split("\n")
     added_count = 0
     ignored_count = 0
@@ -114,22 +120,19 @@ async def check_proxies_callback(callback: CallbackQuery):
     )
     await callback.answer()
 
-    valid_count = 0
-    invalid_count = 0
+    # Проверяем все прокси асинхронно с ограничением параллельности
+    sem = asyncio.Semaphore(10)
 
-    # Проверяем все прокси асинхронно
-    async def check_and_update(proxy_str: str):
-        nonlocal valid_count, invalid_count
-        is_valid = await ProxyChecker.check(proxy_str)
-        status = 1 if is_valid else 0
-        await db_manager.update_proxy_status(proxy_str, status)
-        if is_valid:
-            valid_count += 1
-        else:
-            invalid_count += 1
+    async def check_and_update(proxy_str: str) -> bool:
+        async with sem:
+            is_valid = await ProxyChecker.check(proxy_str)
+            status = 1 if is_valid else 0
+            await db_manager.update_proxy_status(proxy_str, status)
+            return is_valid
 
-    tasks = [check_and_update(p[0]) for p in proxies]
-    await asyncio.gather(*tasks)
+    results = await asyncio.gather(*[check_and_update(p[0]) for p in proxies])
+    valid_count = sum(1 for r in results if r)
+    invalid_count = sum(1 for r in results if not r)
 
     # Показываем результат
     result_text = (

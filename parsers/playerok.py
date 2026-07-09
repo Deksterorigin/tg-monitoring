@@ -25,10 +25,8 @@ class PlayerokParser(BaseParser):
             return parsed_items
 
         try:
-            # Шаг 1. Переходим на главную страницу Playerok
-            logger.info(f"[{self.platform_name}] Открытие главной страницы")
-            await page.goto("https://playerok.com/", timeout=30000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(2000)
+            # Шаг 1. Страница Playerok уже загружена через get_working_browser_page
+            logger.info(f"[{self.platform_name}] Главная страница уже загружена")
 
             # Шаг 2. Ищем инпут поиска и вводим ключевое слово
             search_input = page.locator("input[placeholder*='Поиск'], input[placeholder*='поиск']")
@@ -127,7 +125,7 @@ class PlayerokParser(BaseParser):
                             # Конвертация валюты
                             if "$" in price_text or "usd" in price_text.lower():
                                 price_usd = price_val
-                                price_rub = price_usd * 90.0
+                                price_rub = await currency_service.convert_usd_to_rub(price_usd)
                             elif "€" in price_text or "eur" in price_text.lower():
                                 price_usd = await currency_service.convert_eur_to_usd(price_val)
                                 price_rub = await currency_service.convert_eur_to_rub(price_val)
@@ -141,7 +139,8 @@ class PlayerokParser(BaseParser):
                                 price_rub=round(price_rub, 2),
                                 price_usd=round(price_usd, 2),
                                 url=item_url,
-                                platform=self.platform_name
+                                platform=self.platform_name,
+                                seller_reviews=-1
                             ))
                         except Exception as card_err:
                             logger.error(f"[{self.platform_name}] Ошибка разбора карточки: {card_err}")

@@ -65,7 +65,7 @@ CHROMIUM_ARGS = [
     "--disable-field-trial-config",
 ]
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
 
 async def _block_resources(route):
@@ -181,9 +181,13 @@ class BrowserManager:
         # Убиваем зомби-процессы Chromium (если остались после таймаута)
         try:
             import subprocess
-            subprocess.run(["pkill", "-f", "chromium"], capture_output=True, timeout=3)
+            import platform
+            if platform.system() == "Windows":
+                subprocess.run(["taskkill", "/F", "/IM", "chromium.exe"], capture_output=True, timeout=3)
+            else:
+                subprocess.run(["pkill", "-f", "chromium"], capture_output=True, timeout=3)
         except Exception:
-            pass  # На Windows pkill не существует, игнорируем
+            pass
 
     @property
     def is_running(self) -> bool:

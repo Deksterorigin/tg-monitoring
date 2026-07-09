@@ -21,7 +21,7 @@ class GGSelParser(BaseParser):
         url = f"https://ggsel.net/catalog?search={keyword}"
         
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
             "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
         }
         
@@ -104,7 +104,7 @@ class GGSelParser(BaseParser):
                         
                         if "$" in price_text or "usd" in price_text.lower():
                             price_usd = price_val
-                            price_rub = price_usd * 90.0
+                            price_rub = await currency_service.convert_usd_to_rub(price_usd)
                         elif "€" in price_text or "eur" in price_text.lower():
                             price_usd = await currency_service.convert_eur_to_usd(price_val)
                             price_rub = await currency_service.convert_eur_to_rub(price_val)
@@ -118,7 +118,8 @@ class GGSelParser(BaseParser):
                             price_rub=round(price_rub, 2),
                             price_usd=round(price_usd, 2),
                             url=item_url,
-                            platform=self.platform_name
+                            platform=self.platform_name,
+                            seller_reviews=-1
                         ))
                     except Exception as card_err:
                         logger.error(f"[{self.platform_name}] Ошибка разбора карточки: {card_err}")

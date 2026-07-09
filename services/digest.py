@@ -47,9 +47,15 @@ async def send_morning_digest():
             message_lines.append("")
             
         text = "\n".join(message_lines)
-        # Ограничиваем длину сообщения
         if len(text) > 4000:
-            text = text[:4000] + "...\n(показана только часть данных)"
+            # Обрезаем по целым строкам, чтобы не ломать HTML-теги
+            lines_list = text.split("\n")
+            truncated = ""
+            for line in lines_list:
+                if len(truncated) + len(line) + 1 > 3900:
+                    break
+                truncated += line + "\n"
+            text = truncated + "\n...(показана только часть данных)"
             
         for admin_id in admins:
             try:

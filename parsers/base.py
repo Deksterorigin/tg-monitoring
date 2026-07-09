@@ -47,7 +47,7 @@ class BaseParser(ABC):
             proxy = await self.get_route_proxy()
             try:
                 logger.info(f"[{self.platform_name}] Попытка HTTP запроса {attempt + 1}/{max_retries} через прокси: {proxy or 'БЕЗ ПРОКСИ'}")
-                async with session.get(url, proxy=proxy, headers=headers, timeout=10) as response:
+                async with session.get(url, proxy=proxy, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         return await response.text()
                     logger.warning(f"[{self.platform_name}] Прокси вернул код {response.status}. Пробуем другой...")

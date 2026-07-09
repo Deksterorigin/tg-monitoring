@@ -142,7 +142,14 @@ async def show_category_deals(callback: CallbackQuery):
         
     text = "\n".join(lines)
     if len(text) > 4000:
-        text = text[:4000] + "\n\n... (данные обрезаны)"
+        # Обрезаем по целым строкам, чтобы не ломать HTML-теги
+        lines_list = text.split("\n")
+        truncated = ""
+        for line in lines_list:
+            if len(truncated) + len(line) + 1 > 3900:
+                break
+            truncated += line + "\n"
+        text = truncated + "\n... (данные обрезаны)"
         
     await callback.message.edit_text(
         text,

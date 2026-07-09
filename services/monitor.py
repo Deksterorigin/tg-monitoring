@@ -17,7 +17,13 @@ logger = logging.getLogger(__name__)
 
 # Глобальный лок для предотвращения параллельных циклов
 # Если предыдущий цикл ещё не завершился — новый пропускается
-_monitoring_lock = asyncio.Lock()
+_monitoring_lock = None
+
+def _get_monitoring_lock() -> asyncio.Lock:
+    global _monitoring_lock
+    if _monitoring_lock is None:
+        _monitoring_lock = asyncio.Lock()
+    return _monitoring_lock
 
 # Инициализируем парсеры: сначала лёгкие (HTTP), потом тяжёлые (Playwright)
 HTTP_PARSERS = [
@@ -146,11 +152,12 @@ async def run_monitoring_cycle():
     Защищён от параллельного запуска через asyncio.Lock.
     Если предыдущий цикл ещё работает — новый пропускается.
     """
-    if _monitoring_lock.locked():
+    lock = _get_monitoring_lock()
+    if lock.locked():
         logger.warning("Предыдущий цикл мониторинга ещё выполняется. Пропускаем этот запуск.")
         return
 
-    async with _monitoring_lock:
+    async with lock:
         await _run_monitoring_cycle_inner()
 
 
@@ -169,11 +176,9 @@ async def _run_monitoring_cycle_inner():
             from services.proxy_pool import proxy_pool
             await proxy_pool.refresh()
             if not proxy_pool.working_proxies:
-                logger.warning("[Monitor] Бесплатные прокси включены, но в пуле нет ни одного рабочего прокси. Пропускаем этот цикл парсинга для предотвращения бана сервера.")
-                return
+                logger.warning("[Monitor] Бесплатные прокси включены, но в пуле нет ни одного рабочего прокси. Продолжаем с использованием приватных прокси из БД (если есть) или напрямую.")
         except Exception as e:
             logger.error(f"[Monitor] Не удалось обновить пул прокси: {e}", exc_info=True)
-            return
 
     # Загружаем настройки поиска
     try:
@@ -213,7 +218,7 @@ async def _run_monitoring_cycle_inner():
                 title_lower = item.title.lower()
                 if any(mw in title_lower for mw in minus_words):
                     continue
-            if item.seller_reviews < min_reviews:
+            if item.seller_reviews != -1 and item.seller_reviews < min_reviews:
                 continue
             if not (min_price_usd <= item.price_usd <= max_price_usd):
                 continue
@@ -273,12 +278,12 @@ async def _run_monitoring_cycle_inner():
 async def _finalize_cycle(best_deals: Dict[Tuple[str, str, str], ParsedItem]):
     """Финализация цикла: сравнение с предыдущим снэпшотом, уведомления, сохранение."""
     # Извлекаем предыдущий срез для аналитики падения цен
-    previous_snapshot_str = await db_manager.get_setting("previous_snapshot", "[]")
+    previous_snapshot_str = await db_manager.get_latest_snapshot() or "[]"
     try:
         prev_data = json.loads(previous_snapshot_str)
         prev_prices = {}
         for item in prev_data:
-            key = (item["ai_category"], item["duration"])
+            key = (item.get("platform", ""), item["ai_category"], item["duration"])
             if key not in prev_prices or item["price_usd"] < prev_prices[key]:
                 prev_prices[key] = item["price_usd"]
         del prev_data  # Освобождаем память
@@ -290,7 +295,7 @@ async def _finalize_cycle(best_deals: Dict[Tuple[str, str, str], ParsedItem]):
     snapshot = []
     for (platform, ai_category, duration), item in best_deals.items():
         price_drop = 0
-        key = (ai_category, duration)
+        key = (platform, ai_category, duration)
         if key in prev_prices and item.price_usd < prev_prices[key]:
             price_drop = round(prev_prices[key] - item.price_usd, 2)
 

@@ -25,8 +25,10 @@ async def get_admins_list_text() -> str:
     return text
 
 @router.callback_query(F.data == "menu_admins")
-async def show_admins_menu(callback: CallbackQuery):
+async def show_admins_menu(callback: CallbackQuery, state: FSMContext = None):
     """Показывает меню управления администраторами."""
+    if state:
+        await state.clear()
     list_text = await get_admins_list_text()
     await callback.message.edit_text(
         list_text,
@@ -50,6 +52,12 @@ async def add_admin_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_for_add)
 async def process_add_admin(message: Message, state: FSMContext):
     """Добавление администратора в БД."""
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение с Telegram ID.",
+            reply_markup=get_back_keyboard("menu_admins")
+        )
+        return
     text = message.text.strip()
     try:
         admin_id = int(text)
@@ -89,6 +97,12 @@ async def remove_admin_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_for_remove)
 async def process_remove_admin(message: Message, state: FSMContext):
     """Удаление администратора из БД."""
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение с Telegram ID.",
+            reply_markup=get_back_keyboard("menu_admins")
+        )
+        return
     text = message.text.strip()
     try:
         admin_id = int(text)

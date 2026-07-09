@@ -150,9 +150,9 @@ class DatabaseManager:
         try:
             async with self._lock:
                 db = await self._get_conn()
-                await db.execute("INSERT OR IGNORE INTO admins (telegram_id) VALUES (?)", (telegram_id,))
+                cursor = await db.execute("INSERT OR IGNORE INTO admins (telegram_id) VALUES (?)", (telegram_id,))
                 await db.commit()
-            return True
+                return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Ошибка при добавлении админа {telegram_id}: {e}")
             return False
@@ -164,9 +164,9 @@ class DatabaseManager:
         try:
             async with self._lock:
                 db = await self._get_conn()
-                await db.execute("DELETE FROM admins WHERE telegram_id = ?", (telegram_id,))
+                cursor = await db.execute("DELETE FROM admins WHERE telegram_id = ?", (telegram_id,))
                 await db.commit()
-            return True
+                return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Ошибка при удалении админа {telegram_id}: {e}")
             return False
@@ -217,10 +217,24 @@ class DatabaseManager:
             logger.error(f"Ошибка при сохранении настройки {key}: {e}")
 
     async def set_latest_snapshot(self, snapshot_json: str):
-        old_snapshot = await self.get_latest_snapshot()
-        if old_snapshot:
-            await self.set_setting("previous_snapshot", old_snapshot)
-        await self.set_setting("latest_snapshot", snapshot_json)
+        try:
+            async with self._lock:
+                db = await self._get_conn()
+                # Читаем текущий latest_snapshot под локом
+                async with db.execute("SELECT value FROM settings WHERE key = ?", ("latest_snapshot",)) as cursor:
+                    row = await cursor.fetchone()
+                if row and row[0]:
+                    await db.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                        ("previous_snapshot", row[0])
+                    )
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    ("latest_snapshot", snapshot_json)
+                )
+                await db.commit()
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении снимка цен: {e}")
 
     async def get_latest_snapshot(self) -> Optional[str]:
         return await self.get_setting("latest_snapshot", None)

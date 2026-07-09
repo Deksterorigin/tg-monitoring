@@ -17,7 +17,7 @@ class PlatiParser(BaseParser):
         url = f"https://plati.io/api/search.ashx?query={keyword}&response=json"
         
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
         }
         
         try:
@@ -48,6 +48,11 @@ class PlatiParser(BaseParser):
                         price_usd = float(row.get("price_usd", 0.0))
                         price_rub = float(row.get("price_rur", 0.0))
                         
+                        # Отзывы (Plati API может содержать поле count_positiveresponses)
+                        seller_reviews = int(row.get("count_positiveresponses", -1))
+                        if seller_reviews < 0:
+                            seller_reviews = int(row.get("count_good_responses", -1))
+                        
                         # URL товара
                         item_url = f"https://plati.market/itm/{item_id}"
                         
@@ -57,7 +62,8 @@ class PlatiParser(BaseParser):
                             price_rub=price_rub,
                             price_usd=price_usd,
                             url=item_url,
-                            platform=self.platform_name
+                            platform=self.platform_name,
+                            seller_reviews=seller_reviews
                         ))
                     except Exception as row_err:
                         logger.error(f"[{self.platform_name}] Ошибка обработки строки товара: {row_err}")

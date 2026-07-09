@@ -26,7 +26,6 @@ class ProxyPool:
 
     async def refresh(self):
         """Скачивает бесплатные прокси, проверяет работоспособность и наполняет пул."""
-        self.working_proxies.clear()
 
         # Проверяем, включено ли использование авто-прокси в БД
         use_free = await db_manager.get_setting("use_free_proxies", "1")
@@ -145,7 +144,7 @@ class ProxyPool:
                     return
 
                 headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
                 }
                 # Делаем легкий GET-запрос на plati.io без проверки SSL
                 async with session.get("https://plati.io/", proxy=proxy_url, headers=headers, ssl=False) as response:
