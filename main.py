@@ -75,6 +75,15 @@ async def main():
         id="self_ping_job"
     )
     
+    # Задача регулярной авто-проверки и обновления бесплатных прокси (каждые 2 часа)
+    from services.proxy_pool import proxy_pool
+    scheduler.add_job(
+        proxy_pool.refresh,
+        "interval",
+        hours=2,
+        id="proxy_refresh_job"
+    )
+    
     scheduler.start()
     logger.info("Планировщик APScheduler успешно запущен.")
 

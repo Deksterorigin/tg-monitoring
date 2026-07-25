@@ -16,6 +16,7 @@ class SettingsStates(StatesGroup):
     waiting_for_keywords = State()
     waiting_for_minus_words = State()
     waiting_for_min_reviews = State()
+    waiting_for_min_price_drop = State()
     waiting_for_dnd_start = State()
     waiting_for_dnd_end = State()
 
@@ -27,6 +28,7 @@ async def show_settings_menu(callback: CallbackQuery, state: FSMContext = None):
     min_price = await db_manager.get_setting("min_price_usd", "0.0")
     max_price = await db_manager.get_setting("max_price_usd", "10.0")
     min_reviews = await db_manager.get_setting("min_reviews", "10")
+    min_price_drop = await db_manager.get_setting("min_price_drop_usd", "0.0")
     keywords = await db_manager.get_setting("keywords", "Не заданы")
     minus_words = await db_manager.get_setting("minus_words", "")
     minus_display = minus_words if minus_words else "Нет"
@@ -36,6 +38,7 @@ async def show_settings_menu(callback: CallbackQuery, state: FSMContext = None):
         f"📉 Минимальная цена: <code>{min_price} $</code>\n"
         f"📈 Максимальная цена: <code>{max_price} $</code>\n"
         f"⭐ Мин. отзывы продавца: <code>{min_reviews}</code>\n"
+        f"📉 Порог снижения цены: <code>{min_price_drop} $</code>\n"
         f"🔍 Ключевые слова: <code>{keywords}</code>\n"
         f"🚫 Минус-слова: <code>{minus_display}</code>\n\n"
         f"Выберите пункт меню для изменения:"
@@ -182,6 +185,54 @@ async def process_min_reviews(message: Message, state: FSMContext):
         await message.answer(
             "❌ <b>Ошибка!</b> Введите корректное целое число (>= 0).\n"
             "Пример: <code>10</code>",
+            parse_mode="HTML",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+
+@router.callback_query(F.data == "set_min_price_drop")
+async def set_min_price_drop_prompt(callback: CallbackQuery, state: FSMContext):
+    """Запрос на ввод минимального порога падения цены для уведомления."""
+    await state.set_state(SettingsStates.waiting_for_min_price_drop)
+    await callback.message.edit_text(
+        "📉 <b>Введите минимальный порог падения цены ($):</b>\n"
+        "Уведомления об изменении цен будут приходить, только если цена упала на эту сумму или больше.\n"
+        "Например: <code>0.5</code> или <code>0</code> (уведомлять о любых скидках)",
+        parse_mode="HTML",
+        reply_markup=get_back_keyboard("menu_settings")
+    )
+    await callback.answer()
+
+@router.message(SettingsStates.waiting_for_min_price_drop)
+async def process_min_price_drop(message: Message, state: FSMContext):
+    """Сохранение минимального порога падения цены."""
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_settings"))
+        return
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение со значением порога.",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+        return
+    text = message.text.replace(",", ".").strip()
+    try:
+        drop_val = float(text)
+        if drop_val < 0:
+            raise ValueError()
+        
+        await db_manager.set_setting("min_price_drop_usd", str(drop_val))
+        await state.clear()
+        
+        await message.answer(
+            f"✅ Порог снижения цены успешно изменен на <b>{drop_val} $</b>!",
+            parse_mode="HTML",
+            reply_markup=get_back_keyboard("menu_settings")
+        )
+    except ValueError:
+        await message.answer(
+            "❌ <b>Ошибка!</b> Введите корректное число (>= 0).\n"
+            "Пример: <code>0.5</code>",
             parse_mode="HTML",
             reply_markup=get_back_keyboard("menu_settings")
         )

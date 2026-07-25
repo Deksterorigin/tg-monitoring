@@ -288,9 +288,37 @@ async def _run_monitoring_cycle_inner(start_time: float, is_manual: bool = False
     await _finalize_cycle(best_deals, start_time)
 
 
+_failed_cycles_counter = 0
+
 async def _finalize_cycle(best_deals: Dict[Tuple[str, str, str], ParsedItem], start_time: float):
     """Финализация цикла: сравнение с предыдущим снэпшотом, уведомления, сохранение."""
+    global _failed_cycles_counter
     duration_sec = time.time() - start_time
+
+    # Читаем настройку минимального порога падения цены для уведомлений
+    try:
+        min_price_drop_usd = float(await db_manager.get_setting("min_price_drop_usd", "0.0"))
+    except ValueError:
+        min_price_drop_usd = 0.0
+
+    if not best_deals:
+        _failed_cycles_counter += 1
+        logger.warning(f"Цикл мониторинга завершён без результатов ({_failed_cycles_counter}/3 подряд).")
+        if _failed_cycles_counter >= 3:
+            # Отправляем варнинг администраторам
+            admins = await db_manager.get_admins()
+            for admin_id in admins:
+                try:
+                    await bot.send_message(
+                        chat_id=admin_id,
+                        text="⚠️ <b>Внимание (Watchdog):</b> 3 цикла парсинга подряд не вернули данных! Проверьте список ключевых слов, рабочий статус прокси и серверов.",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+    else:
+        _failed_cycles_counter = 0
+
     # Извлекаем предыдущий срез для аналитики падения цен
     previous_snapshot_str = await db_manager.get_latest_snapshot() or "[]"
     try:
@@ -325,7 +353,9 @@ async def _finalize_cycle(best_deals: Dict[Tuple[str, str, str], ParsedItem], st
         })
         try:
             seen = await db_manager.is_item_seen(item.id)
-            if not seen or price_drop > 0:
+            is_significant_drop = (price_drop > 0 and price_drop >= min_price_drop_usd)
+            
+            if not seen or is_significant_drop:
                 if not seen:
                     await db_manager.add_seen_item(item.id)
                 

@@ -114,7 +114,8 @@ class DatabaseManager:
             "dnd_enabled": "0",
             "dnd_start": "23:00",
             "dnd_end": "08:00",
-            "use_free_proxies": "1"
+            "use_free_proxies": "1",
+            "min_price_drop_usd": "0.0"
         }
 
         async with self._lock:
@@ -350,6 +351,37 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Ошибка при получении аналитики: {e}")
         return stats
+
+    async def export_latest_snapshot_csv(self) -> Optional[str]:
+        """Генерирует CSV-строку из последнего снимка цен."""
+        import json
+        import csv
+        import io
+        snapshot_str = await self.get_latest_snapshot()
+        if not snapshot_str:
+            return None
+        try:
+            data = json.loads(snapshot_str)
+            if not data:
+                return None
+            output = io.StringIO()
+            writer = csv.writer(output, delimiter=';')
+            writer.writerow(["Категория", "Срок", "Платформа", "Название", "Цена (RUB)", "Цена (USD)", "Скидка (USD)", "Ссылка"])
+            for item in data:
+                writer.writerow([
+                    item.get("ai_category", ""),
+                    item.get("duration", ""),
+                    item.get("platform", ""),
+                    item.get("title", ""),
+                    item.get("price_rub", 0),
+                    item.get("price_usd", 0),
+                    item.get("price_drop", 0),
+                    item.get("url", "")
+                ])
+            return output.getvalue()
+        except Exception as e:
+            logger.error(f"Ошибка генерирования CSV экспорта: {e}")
+            return None
 
 # Экземпляр синглтона базы данных
 db_manager = DatabaseManager()

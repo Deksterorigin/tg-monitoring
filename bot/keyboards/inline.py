@@ -44,7 +44,8 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📈 Изменить макс. цену ($)", callback_data="set_max_price")
         ],
         [
-            InlineKeyboardButton(text="⭐ Мин. отзывы продавца", callback_data="set_min_reviews")
+            InlineKeyboardButton(text="⭐ Мин. отзывы продавца", callback_data="set_min_reviews"),
+            InlineKeyboardButton(text="📉 Порог демпинга ($)", callback_data="set_min_price_drop")
         ],
         [
             InlineKeyboardButton(text="🔍 Ключевые слова", callback_data="set_keywords"),
@@ -112,11 +113,13 @@ def get_categories_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
     if row:
         buttons.append(row)
 
+    buttons.append([InlineKeyboardButton(text="📥 Скачать CSV с ценами", callback_data="export_deals_csv")])
     buttons.append([InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_back_to_categories_keyboard() -> InlineKeyboardMarkup:
     buttons = [
+        [InlineKeyboardButton(text="📥 Скачать CSV с ценами", callback_data="export_deals_csv")],
         [InlineKeyboardButton(text="🔙 К списку категорий", callback_data="show_current_deals")],
         [InlineKeyboardButton(text="🏠 В главное меню", callback_data="back_to_main")]
     ]

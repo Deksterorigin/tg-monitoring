@@ -219,3 +219,51 @@ async def show_category_deals(callback: CallbackQuery):
         reply_markup=get_back_to_categories_keyboard()
     )
     await callback.answer()
+
+@router.callback_query(F.data == "export_deals_csv")
+async def export_deals_csv(callback: CallbackQuery):
+    """Выгрузка текущего снимка цен в формате CSV файла."""
+    csv_data = await db_manager.export_latest_snapshot_csv()
+    if not csv_data:
+        await callback.answer("Данных для экспорта пока нет.", show_alert=True)
+        return
+        
+    from aiogram.types import BufferedInputFile
+    file_bytes = csv_data.encode('utf-8-sig') # BOM для корректной кодировки в Excel
+    input_file = BufferedInputFile(file_bytes, filename="deals_export.csv")
+    
+    await callback.message.answer_document(
+        document=input_file,
+        caption="📊 <b>Выгрузка лучших цен в формате CSV (Excel).</b>"
+    )
+    await callback.answer("Файл экспорта сформирован")
+
+@router.message(Command("search"))
+async def cmd_search(message: Message):
+    """Быстрый поиск по предложениям из чата (/search ChatGPT)."""
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("🔍 <b>Использование:</b> <code>/search Название</code>\nПример: <code>/search ChatGPT</code>", parse_mode="HTML")
+        return
+        
+    query = args[1].strip().lower()
+    snapshot_json = await db_manager.get_latest_snapshot()
+    if not snapshot_json:
+        await message.answer("⚠️ Данных в базе пока нет. Дождитесь запуска парсинга.")
+        return
+        
+    try:
+        snapshot = json.loads(snapshot_json)
+        results = [item for item in snapshot if query in item['title'].lower() or query in item['ai_category'].lower()]
+        
+        if not results:
+            await message.answer(f"🔍 По запросу «<b>{args[1]}</b>» ничего не найдено.", parse_mode="HTML")
+            return
+            
+        lines = [f"🔍 <b>Результаты поиска по запросу «{args[1]}»:</b>\n"]
+        for item in sorted(results, key=lambda x: x['price_usd'])[:15]:
+            lines.append(f"• <b>{item['ai_category']}</b> ({item['platform']}, {item['duration']}): {item['price_rub']} ₽ (~{item['price_usd']}$) — <a href='{item['url']}'>Ссылка</a>")
+            
+        await message.answer("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при поиске: {e}")
