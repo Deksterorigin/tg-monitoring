@@ -61,7 +61,25 @@ async def cmd_cancel(message: Message, state: FSMContext):
     else:
         text = await get_dashboard_text()
         monitoring_enabled = (await db_manager.get_setting("monitoring_enabled", "1")) == "1"
-        await message.answer(text, parse_mode="HTML", reply_markup=get_main_menu_keyboard(monitoring_enabled))
+@router.message(Command("help"))
+async def cmd_help(message: Message):
+    """Справка по возможностям и командам бота."""
+    text = (
+        "🤖 <b>Инструкция по использованию бота v1.0</b>\n\n"
+        "<b>Доступные команды:</b>\n"
+        "• <code>/start</code> — Главная панель управления\n"
+        "• <code>/search &lt;запрос&gt;</code> — Быстрый поиск по предложениям (напр. <code>/search ChatGPT</code>)\n"
+        "• <code>/help</code> — Полное руководство по функционалу\n"
+        "• <code>/cancel</code> — Сброс текущего диалога ввода\n\n"
+        "<b>Ключевые возможности:</b>\n"
+        "⚡ <b>Запустить парсинг сейчас</b> — Мгновенный запуск проверки маркетплейсов (FunPay, Plati, GGSel, Playerok).\n"
+        "📊 <b>Текущие лучшие цены</b> — Просмотр минимальных цен по категориям нейросетей.\n"
+        "📈 <b>Аналитика & Статус</b> — Длительность цикла, объем БД и курсы валют.\n"
+        "📉 <b>Порог демпинга</b> — Настройка чувствительности к изменениям цен (в $).\n"
+        "📊 <b>Скачать Excel отчет</b> — Выгрузка стильной таблицы с форматированием.\n"
+        "🌙 <b>Тихий час (DND)</b> — Ночной режим с утренним дайджестом."
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=get_back_keyboard("back_to_main"))
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery, state: FSMContext = None):

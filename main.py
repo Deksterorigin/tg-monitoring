@@ -87,8 +87,18 @@ async def main():
     scheduler.start()
     logger.info("Планировщик APScheduler успешно запущен.")
 
-    # 5. Запускаем keep-alive веб-сервер
-    web_runner = await start_web_server()
+    # Регистрация меню команд в интерфейсе Telegram
+    from aiogram.types import BotCommand
+    commands = [
+        BotCommand(command="start", description="👑 Главное меню / Панель"),
+        BotCommand(command="search", description="🔍 Быстрый поиск предложений"),
+        BotCommand(command="help", description="📖 Справка и инструкция"),
+        BotCommand(command="cancel", description="❌ Отмена ввода данных")
+    ]
+    try:
+        await bot.set_my_commands(commands)
+    except Exception as e:
+        logger.warning(f"Не удалось зарегистрировать меню команд: {e}")
 
     try:
         # 6. Запуск polling бота
