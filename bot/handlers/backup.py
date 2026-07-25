@@ -222,8 +222,12 @@ async def process_db_restore(message: Message, state: FSMContext):
         )
 
 @router.message(BackupStates.waiting_for_db_file)
-async def process_db_restore_invalid(message: Message):
+async def process_db_restore_invalid(message: Message, state: FSMContext):
     """Обработка некорректного ввода (если отправлен не документ)."""
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Восстановление БД отменено.", reply_markup=get_back_keyboard("menu_backup"))
+        return
     await message.answer(
         "⚠️ Пожалуйста, отправьте файл резервной копии (.db) в виде <b>документа</b> (файла), "
         "или нажмите кнопку 'Назад' для отмены.",

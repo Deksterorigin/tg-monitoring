@@ -72,6 +72,10 @@ async def add_proxy_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(ProxyStates.waiting_for_proxies)
 async def process_add_proxies(message: Message, state: FSMContext):
     """Добавление прокси в БД."""
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_proxies"))
+        return
     if not message.text:
         await message.answer(
             "❌ Пожалуйста, отправьте текстовое сообщение со списком прокси.",

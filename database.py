@@ -319,5 +319,38 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Ошибка при добавлении просмотренного товара {item_id}: {e}")
 
+    # --- Аналитика и статистика ---
+    async def save_last_parse_stats(self, duration_sec: float, items_count: int, notifications_sent: int):
+        import time
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        await self.set_setting("last_parse_time", now_str)
+        await self.set_setting("last_parse_duration", f"{duration_sec:.1f}")
+        await self.set_setting("last_parse_items", str(items_count))
+        await self.set_setting("last_parse_notifications", str(notifications_sent))
+
+    async def get_analytics_summary(self) -> dict:
+        import os
+        stats = {
+            "last_parse_time": await self.get_setting("last_parse_time", "Еще не запускался"),
+            "last_parse_duration": await self.get_setting("last_parse_duration", "0"),
+            "last_parse_items": await self.get_setting("last_parse_items", "0"),
+            "last_parse_notifications": await self.get_setting("last_parse_notifications", "0"),
+            "total_seen_items": 0,
+            "db_size_mb": 0.0
+        }
+        try:
+            async with self._lock:
+                db = await self._get_conn()
+                async with db.execute("SELECT COUNT(*) FROM seen_items") as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        stats["total_seen_items"] = row[0]
+            if os.path.exists(self.db_path):
+                stats["db_size_mb"] = round(os.path.getsize(self.db_path) / (1024 * 1024), 2)
+        except Exception as e:
+            logger.error(f"Ошибка при получении аналитики: {e}")
+        return stats
+
 # Экземпляр синглтона базы данных
 db_manager = DatabaseManager()
+

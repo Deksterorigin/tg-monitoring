@@ -59,6 +59,10 @@ async def set_min_price_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(SettingsStates.waiting_for_min_price)
 async def process_min_price(message: Message, state: FSMContext):
     """Сохранение новой минимальной цены."""
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_settings"))
+        return
     if not message.text:
         await message.answer(
             "❌ Пожалуйста, отправьте текстовое сообщение с минимальной ценой.",
@@ -102,6 +106,10 @@ async def set_max_price_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(SettingsStates.waiting_for_price)
 async def process_max_price(message: Message, state: FSMContext):
     """Сохранение новой максимальной цены."""
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_settings"))
+        return
     if not message.text:
         await message.answer(
             "❌ Пожалуйста, отправьте текстовое сообщение с максимальной ценой.",
@@ -146,6 +154,10 @@ async def set_min_reviews_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(SettingsStates.waiting_for_min_reviews)
 async def process_min_reviews(message: Message, state: FSMContext):
     """Сохранение минимального количества отзывов."""
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_settings"))
+        return
     if not message.text:
         await message.answer(
             "❌ Пожалуйста, отправьте текстовое сообщение с количеством отзывов.",
@@ -191,6 +203,10 @@ async def set_keywords_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(SettingsStates.waiting_for_keywords)
 async def process_keywords(message: Message, state: FSMContext):
     """Сохранение новых ключевых слов."""
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_settings"))
+        return
     if not message.text:
         await message.answer(
             "❌ Пожалуйста, отправьте текстовое сообщение с ключевыми словами.",
@@ -237,6 +253,10 @@ async def set_minus_words_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(SettingsStates.waiting_for_minus_words)
 async def process_minus_words(message: Message, state: FSMContext):
     """Сохранение новых минус-слов."""
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_settings"))
+        return
     if not message.text:
         await message.answer(
             "❌ Пожалуйста, отправьте текстовое сообщение с минус-словами.",
@@ -310,6 +330,10 @@ async def set_dnd_start_prompt(callback: CallbackQuery, state: FSMContext):
 
 @router.message(SettingsStates.waiting_for_dnd_start)
 async def process_dnd_start(message: Message, state: FSMContext):
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_dnd"))
+        return
     if not message.text:
         await message.answer(
             "❌ Пожалуйста, отправьте текстовое сообщение с временем начала Тихого часа.",
@@ -347,6 +371,10 @@ async def set_dnd_end_prompt(callback: CallbackQuery, state: FSMContext):
 
 @router.message(SettingsStates.waiting_for_dnd_end)
 async def process_dnd_end(message: Message, state: FSMContext):
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_dnd"))
+        return
     if not message.text:
         await message.answer(
             "❌ Пожалуйста, отправьте текстовое сообщение с временем окончания Тихого часа.",
@@ -370,6 +398,9 @@ async def process_dnd_end(message: Message, state: FSMContext):
     
     # Пересоздаем задачу дайджеста
     from services.digest import update_digest_job
+    await update_digest_job()
+    
+    await message.answer(f"✅ Время окончания Тихого часа установлено на <b>{text}</b>", parse_mode="HTML", reply_markup=get_back_keyboard("menu_dnd"))
     await update_digest_job()
     
     await message.answer(f"✅ Время окончания Тихого часа установлено на <b>{text}</b>", parse_mode="HTML", reply_markup=get_back_keyboard("menu_dnd"))

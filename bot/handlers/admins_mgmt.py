@@ -52,6 +52,10 @@ async def add_admin_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_for_add)
 async def process_add_admin(message: Message, state: FSMContext):
     """Добавление администратора в БД."""
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_admins"))
+        return
     if not message.text:
         await message.answer(
             "❌ Пожалуйста, отправьте текстовое сообщение с Telegram ID.",
@@ -97,6 +101,10 @@ async def remove_admin_prompt(callback: CallbackQuery, state: FSMContext):
 @router.message(AdminStates.waiting_for_remove)
 async def process_remove_admin(message: Message, state: FSMContext):
     """Удаление администратора из БД."""
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        await message.answer("❌ Ввод отменён.", reply_markup=get_back_keyboard("menu_admins"))
+        return
     if not message.text:
         await message.answer(
             "❌ Пожалуйста, отправьте текстовое сообщение с Telegram ID.",

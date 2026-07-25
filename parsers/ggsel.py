@@ -94,13 +94,9 @@ class GGSelParser(BaseParser):
                         if not price_text:
                             continue
                             
-                        # Очищаем цену (поддержка non-breaking space и любых разделителей тысяч)
-                        price_num_match = re.search(r"([\d\s.,]+)", price_text)
-                        if not price_num_match:
+                        price_val = self.clean_price_string(price_text)
+                        if price_val is None or price_val <= 0:
                             continue
-                            
-                        price_val_str = re.sub(r"\s+", "", price_num_match.group(1)).replace(",", ".")
-                        price_val = float(price_val_str)
                         
                         if "$" in price_text or "usd" in price_text.lower():
                             price_usd = price_val

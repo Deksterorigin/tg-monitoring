@@ -1,6 +1,7 @@
 import random
 import logging
 import aiohttp
+import re
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 from pydantic import BaseModel
@@ -21,6 +22,26 @@ class ParsedItem(BaseModel):
 class BaseParser(ABC):
     def __init__(self, platform_name: str):
         self.platform_name = platform_name
+
+    @staticmethod
+    def clean_price_string(price_raw: str) -> Optional[float]:
+        """
+        Извлекает и очищает числовую цену из любых форматов текста:
+        '1 500,00 ₽', '1500.50$', '1 200 руб.' (с nbsp \xa0).
+        """
+        if not price_raw:
+            return None
+        # Заменяем неразрывные пробелы, буквы и нормализуем запятую в точку
+        cleaned = price_raw.replace('\xa0', ' ').replace(',', '.')
+        match = re.search(r"([\d\s.]+)", cleaned)
+        if not match:
+            return None
+        num_str = re.sub(r"\s+", "", match.group(1)).strip(".")
+        try:
+            val = float(num_str)
+            return val if val >= 0 else None
+        except ValueError:
+            return None
 
     async def get_route_proxy(self) -> Optional[str]:
         """Возвращает случайный рабочий прокси из пула или базы данных в формате для запросов."""
@@ -55,7 +76,7 @@ class BaseParser(ABC):
                 logger.warning(f"[{self.platform_name}] Ошибка HTTP запроса через прокси {proxy}: {e}. Пробуем другой...")
         return None
 
-    async def get_working_browser_page(self, browser_manager, max_retries: int = 3) -> Tuple[Optional['BrowserContext'], Optional['Page']]:
+    async def get_working_browser_page(self, browser_manager, max_retries: int = 3) -> Tuple[Optional[object], Optional[object]]:
         """Создает контекст и страницу Playwright с проверкой работоспособности прокси на целевом сайте и очисткой ресурсов."""
         test_url = "https://funpay.com/" if self.platform_name == "FunPay" else "https://playerok.com/"
         import playwright.async_api

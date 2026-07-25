@@ -146,7 +146,9 @@ async def send_notification_to_admins(item: ParsedItem, ai_category: str, durati
         except Exception as e:
             logger.error(f"Не удалось отправить уведомление админу {admin_id}: {e}")
 
-async def run_monitoring_cycle():
+import time
+
+async def run_monitoring_cycle(is_manual: bool = False):
     """Один полный цикл мониторинга по всем площадкам и ключевым словам.
     
     Защищён от параллельного запуска через asyncio.Lock.
@@ -155,13 +157,24 @@ async def run_monitoring_cycle():
     lock = _get_monitoring_lock()
     if lock.locked():
         logger.warning("Предыдущий цикл мониторинга ещё выполняется. Пропускаем этот запуск.")
-        return
+        return False, "Предыдущий цикл мониторинга ещё выполняется."
 
+    start_time = time.time()
     async with lock:
-        await _run_monitoring_cycle_inner()
+        await _run_monitoring_cycle_inner(start_time, is_manual=is_manual)
+    return True, "Цикл мониторинга успешно завершен."
+
+async def trigger_manual_monitoring() -> tuple[bool, str]:
+    """Запускает ручной цикл мониторинга в фоновой задаче, возвращает статус запуска."""
+    lock = _get_monitoring_lock()
+    if lock.locked():
+        return False, "⚠️ Парсинг уже выполняется в данный момент. Пожалуйста, подождите окончания."
+    
+    asyncio.create_task(run_monitoring_cycle(is_manual=True))
+    return True, "⚡ Ручной запуск мониторинга успешно стартовал!"
 
 
-async def _run_monitoring_cycle_inner():
+async def _run_monitoring_cycle_inner(start_time: float, is_manual: bool = False):
     """Внутренняя логика цикла мониторинга."""
     # Проверяем, включен ли мониторинг
     enabled = await db_manager.get_setting("monitoring_enabled", "1")
@@ -254,7 +267,7 @@ async def _run_monitoring_cycle_inner():
         await browser_manager.shutdown()
         gc.collect()
         # Продолжаем с тем, что собрали HTTP-парсерами
-        await _finalize_cycle(best_deals)
+        await _finalize_cycle(best_deals, start_time)
         return
 
     for keyword in keywords:
@@ -272,11 +285,12 @@ async def _run_monitoring_cycle_inner():
     await browser_manager.shutdown()
     gc.collect()
 
-    await _finalize_cycle(best_deals)
+    await _finalize_cycle(best_deals, start_time)
 
 
-async def _finalize_cycle(best_deals: Dict[Tuple[str, str, str], ParsedItem]):
+async def _finalize_cycle(best_deals: Dict[Tuple[str, str, str], ParsedItem], start_time: float):
     """Финализация цикла: сравнение с предыдущим снэпшотом, уведомления, сохранение."""
+    duration_sec = time.time() - start_time
     # Извлекаем предыдущий срез для аналитики падения цен
     previous_snapshot_str = await db_manager.get_latest_snapshot() or "[]"
     try:
@@ -326,15 +340,18 @@ async def _finalize_cycle(best_deals: Dict[Tuple[str, str, str], ParsedItem]):
         except Exception as e:
             logger.error(f"Ошибка при отправке уведомления для {item.id}: {e}", exc_info=True)
 
-    # Сохраняем снимок в БД
+    # Сохраняем снимок и статистику в БД
     try:
         await db_manager.set_latest_snapshot(json.dumps(snapshot, ensure_ascii=False))
-        logger.info("Срез лучших цен успешно сохранен в БД.")
+        await db_manager.save_last_parse_stats(duration_sec, len(best_deals), sent_count)
+        logger.info("Срез лучших цен и статистика успешно сохранены в БД.")
     except Exception as e:
-        logger.error(f"Ошибка при сохранении среза цен: {e}")
+        logger.error(f"Ошибка при сохранении среза цен/статистики: {e}")
 
     # Периодическая очистка старых seen_items
     await db_manager.cleanup_seen_items(days=7)
+
+    logger.info(f"Цикл мониторинга завершён за {duration_sec:.1f}с. Найдено лучших сделок: {len(best_deals)}, отправлено: {sent_count}.")
 
     logger.info(f"Цикл мониторинга завершён. Лучших сделок: {len(best_deals)}, отправлено: {sent_count}.")
 
