@@ -220,23 +220,24 @@ async def show_category_deals(callback: CallbackQuery):
     )
     await callback.answer()
 
-@router.callback_query(F.data == "export_deals_csv")
-async def export_deals_csv(callback: CallbackQuery):
-    """Выгрузка текущего снимка цен в формате CSV файла."""
-    csv_data = await db_manager.export_latest_snapshot_csv()
-    if not csv_data:
+@router.callback_query(F.data == "export_deals_excel")
+async def export_deals_excel(callback: CallbackQuery):
+    """Выгрузка текущего снимка цен в формате стильного Excel (.xlsx) файла."""
+    excel_bytes = await db_manager.export_latest_snapshot_excel()
+    if not excel_bytes:
         await callback.answer("Данных для экспорта пока нет.", show_alert=True)
         return
         
     from aiogram.types import BufferedInputFile
-    file_bytes = csv_data.encode('utf-8-sig') # BOM для корректной кодировки в Excel
-    input_file = BufferedInputFile(file_bytes, filename="deals_export.csv")
+    import time
+    filename = f"deals_monitoring_{time.strftime('%Y%m%d_%H%M%S')}.xlsx"
+    input_file = BufferedInputFile(excel_bytes, filename=filename)
     
     await callback.message.answer_document(
         document=input_file,
-        caption="📊 <b>Выгрузка лучших цен в формате CSV (Excel).</b>"
+        caption="📊 <b>Профессиональный отчет мониторинга цен (.xlsx)</b>\nСтилизованная таблица с финансовым форматированием и гиперссылками."
     )
-    await callback.answer("Файл экспорта сформирован")
+    await callback.answer("Excel отчет успешно сформирован!")
 
 @router.message(Command("search"))
 async def cmd_search(message: Message):

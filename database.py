@@ -352,35 +352,165 @@ class DatabaseManager:
             logger.error(f"Ошибка при получении аналитики: {e}")
         return stats
 
-    async def export_latest_snapshot_csv(self) -> Optional[str]:
-        """Генерирует CSV-строку из последнего снимка цен."""
+    async def export_latest_snapshot_excel(self) -> Optional[bytes]:
+        """Генерирует стильный, профессиональный Excel (.xlsx) файл с форматированием, цветами и авто-шириной колонок."""
         import json
-        import csv
         import io
+        import time
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
         snapshot_str = await self.get_latest_snapshot()
         if not snapshot_str:
             return None
+
         try:
             data = json.loads(snapshot_str)
             if not data:
                 return None
-            output = io.StringIO()
-            writer = csv.writer(output, delimiter=';')
-            writer.writerow(["Категория", "Срок", "Платформа", "Название", "Цена (RUB)", "Цена (USD)", "Скидка (USD)", "Ссылка"])
-            for item in data:
-                writer.writerow([
-                    item.get("ai_category", ""),
-                    item.get("duration", ""),
-                    item.get("platform", ""),
-                    item.get("title", ""),
-                    item.get("price_rub", 0),
-                    item.get("price_usd", 0),
-                    item.get("price_drop", 0),
-                    item.get("url", "")
-                ])
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Мониторинг цен"
+            ws.views.sheetView[0].showGridLines = True
+
+            # Цветовая палитра
+            DARK_NAVY = "1F497D"
+            BLUE_HEADER = "2F5597"
+            ZEBRA_LIGHT = "F9FAFB"
+            GREEN_FILL = "E2EFDA"
+            GREEN_TEXT = "375623"
+            BORDER_COLOR = "D9D9D9"
+
+            # Стили
+            font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
+            font_subtitle = Font(name="Calibri", size=9, italic=True, color="D9D9D9")
+            font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            font_data = Font(name="Calibri", size=10, color="000000")
+            font_bold = Font(name="Calibri", size=10, bold=True, color="000000")
+            font_link = Font(name="Calibri", size=10, color="0563C1", underline="single")
+            font_drop = Font(name="Calibri", size=10, bold=True, color=GREEN_TEXT)
+
+            fill_title = PatternFill(start_color=DARK_NAVY, end_color=DARK_NAVY, fill_type="solid")
+            fill_header = PatternFill(start_color=BLUE_HEADER, end_color=BLUE_HEADER, fill_type="solid")
+            fill_zebra = PatternFill(start_color=ZEBRA_LIGHT, end_color=ZEBRA_LIGHT, fill_type="solid")
+            fill_drop = PatternFill(start_color=GREEN_FILL, end_color=GREEN_FILL, fill_type="solid")
+
+            thin_border = Border(
+                left=Side(style='thin', color=BORDER_COLOR),
+                right=Side(style='thin', color=BORDER_COLOR),
+                top=Side(style='thin', color=BORDER_COLOR),
+                bottom=Side(style='thin', color=BORDER_COLOR)
+            )
+
+            align_center = Alignment(horizontal="center", vertical="center")
+            align_left = Alignment(horizontal="left", vertical="center")
+            align_right = Alignment(horizontal="right", vertical="center")
+
+            # 1. Заголовок
+            ws.merge_cells("A1:H1")
+            cell_title = ws["A1"]
+            cell_title.value = "📊 МОНИТОРИНГ ЦЕН НА ПОДПИСКИ ИИ-СЕРВИСОВ"
+            cell_title.font = font_title
+            cell_title.fill = fill_title
+            cell_title.alignment = align_center
+
+            ws.merge_cells("A2:H2")
+            cell_sub = ws["A2"]
+            cell_sub.value = f"Сформировано: {time.strftime('%Y-%m-%d %H:%M:%S')} | Всего вариантов: {len(data)}"
+            cell_sub.font = font_subtitle
+            cell_sub.fill = fill_title
+            cell_sub.alignment = align_center
+
+            ws.row_dimensions[1].height = 26
+            ws.row_dimensions[2].height = 16
+            ws.row_dimensions[3].height = 6
+
+            # 2. Шапка таблицы
+            headers = ["🤖 Категория", "⏳ Срок", "🏪 Платформа", "📝 Название товара", "💰 Цена (RUB)", "💵 Цена (USD)", "📉 Скидка (USD)", "🔗 Ссылка"]
+            ws.row_dimensions[4].height = 24
+
+            for col_num, header_title in enumerate(headers, 1):
+                c = ws.cell(row=4, column=col_num)
+                c.value = header_title
+                c.font = font_header
+                c.fill = fill_header
+                c.alignment = align_center
+                c.border = thin_border
+
+            # 3. Данные
+            for idx, item in enumerate(data, 5):
+                ws.row_dimensions[idx].height = 20
+                row_fill = fill_zebra if idx % 2 == 1 else None
+
+                c1 = ws.cell(row=idx, column=1, value=item.get("ai_category", ""))
+                c1.alignment = align_center
+                c1.font = font_bold
+
+                c2 = ws.cell(row=idx, column=2, value=item.get("duration", ""))
+                c2.alignment = align_center
+                c2.font = font_data
+
+                c3 = ws.cell(row=idx, column=3, value=item.get("platform", ""))
+                c3.alignment = align_center
+                c3.font = font_bold
+
+                c4 = ws.cell(row=idx, column=4, value=item.get("title", ""))
+                c4.alignment = align_left
+                c4.font = font_data
+
+                c5 = ws.cell(row=idx, column=5, value=item.get("price_rub", 0.0))
+                c5.alignment = align_right
+                c5.font = font_data
+                c5.number_format = '# ##0.00" ₽"'
+
+                c6 = ws.cell(row=idx, column=6, value=item.get("price_usd", 0.0))
+                c6.alignment = align_right
+                c6.font = font_bold
+                c6.number_format = '"$"#,##0.00'
+
+                drop_val = item.get("price_drop", 0.0)
+                c7 = ws.cell(row=idx, column=7, value=drop_val)
+                c7.alignment = align_right
+                c7.font = font_data
+                c7.number_format = '"$"#,##0.00'
+                if drop_val > 0:
+                    c7.fill = fill_drop
+                    c7.font = font_drop
+
+                c8 = ws.cell(row=idx, column=8)
+                url = item.get("url", "")
+                if url:
+                    c8.value = "Открыть"
+                    c8.hyperlink = url
+                    c8.font = font_link
+                c8.alignment = align_center
+
+                for c in [c1, c2, c3, c4, c5, c6, c7, c8]:
+                    c.border = thin_border
+                    if row_fill and c != c7:
+                        c.fill = row_fill
+
+            # 4. Автоматическая ширина колонок
+            for col in ws.columns:
+                max_len = 0
+                col_letter = get_column_letter(col[0].column)
+                for cell in col:
+                    if cell.row < 4:
+                        continue
+                    val = str(cell.value or '')
+                    if len(val) > max_len:
+                        max_len = len(val)
+                ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+            ws.column_dimensions['D'].width = 45
+
+            output = io.BytesIO()
+            wb.save(output)
             return output.getvalue()
         except Exception as e:
-            logger.error(f"Ошибка генерирования CSV экспорта: {e}")
+            logger.error(f"Ошибка создания красивого Excel отчета: {e}", exc_info=True)
             return None
 
 # Экземпляр синглтона базы данных
