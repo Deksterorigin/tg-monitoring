@@ -401,6 +401,3 @@ async def process_dnd_end(message: Message, state: FSMContext):
     await update_digest_job()
     
     await message.answer(f"✅ Время окончания Тихого часа установлено на <b>{text}</b>", parse_mode="HTML", reply_markup=get_back_keyboard("menu_dnd"))
-    await update_digest_job()
-    
-    await message.answer(f"✅ Время окончания Тихого часа установлено на <b>{text}</b>", parse_mode="HTML", reply_markup=get_back_keyboard("menu_dnd"))

@@ -353,8 +353,6 @@ async def _finalize_cycle(best_deals: Dict[Tuple[str, str, str], ParsedItem], st
 
     logger.info(f"Цикл мониторинга завершён за {duration_sec:.1f}с. Найдено лучших сделок: {len(best_deals)}, отправлено: {sent_count}.")
 
-    logger.info(f"Цикл мониторинга завершён. Лучших сделок: {len(best_deals)}, отправлено: {sent_count}.")
-
 def update_monitoring_job(interval_minutes: int):
     """Обновляет интервал или добавляет задачу мониторинга в планировщик."""
     from scheduler_instance import scheduler
